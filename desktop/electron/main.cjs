@@ -4,6 +4,9 @@ const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { randomUUID } = require("node:crypto");
 
+app.setName("VidClips");
+if (process.platform === "win32") app.setAppUserModelId("com.vidclips.desktop");
+
 protocol.registerSchemesAsPrivileged([{ scheme: "vidclips-media", privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true } }]);
 const mediaPaths = new Map();
 function registerMediaPath(filePath) { const id = randomUUID(); mediaPaths.set(id, filePath); return "vidclips-media://asset/" + id; }
