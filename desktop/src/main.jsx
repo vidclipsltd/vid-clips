@@ -139,7 +139,7 @@ function App() {
   }
 
   async function saveProject() {
-    const project = { app: "VidClips Desktop", version: 2, projectName, clips: clips.map(({ mediaUrl, ...clip }) => clip), playhead };
+    const project = { app: "VidClips", version: 2, projectName, clips: clips.map(({ mediaUrl, ...clip }) => clip), playhead };
     if (window.vidclips?.saveProject) {
       try {
         const result = await window.vidclips.saveProject(project);
@@ -333,7 +333,7 @@ function App() {
             ].map(([key, label]) => <label key={key} className="ai-option"><input type="checkbox" checked={analysisOptions.includes(key)} onChange={(event) => setAnalysisOptions((items) => event.target.checked ? [...items, key] : items.filter((item) => item !== key))} /><span>{label}</span></label>)}
             <p>Runs on this PC's CPU. First use may download large AI models; advanced analyzers can be slow.</p>
           </div></div>
-          <div className="sidebar-bottom"><span className="status-dot" /> Desktop app prototype</div>
+          <div className="sidebar-bottom"><span className="status-dot" /> Local workspace ready</div>
         </aside>
 
         <main className="main-area">
