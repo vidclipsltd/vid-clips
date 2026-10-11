@@ -9,3 +9,6 @@
 .analysis-results{min-height:32px;flex-shrink:0;display:flex;align-items:center;gap:12px;padding:5px 12px;border-top:1px solid #2b2c34;background:#191a20;color:#a5a5b2;font-size:10px;overflow:hidden}.analysis-results strong{color:#d7d1eb;white-space:nowrap}.analysis-results .analysis-path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;text-align:right;color:#858693}
 
 .ai-options{margin-top:18px;padding-top:12px;border-top:1px solid #30313a}.ai-options .section-label{margin-bottom:9px}.ai-option{display:flex;align-items:flex-start;gap:7px;margin:8px 0;color:#b4b4c0;font-size:10px;line-height:1.35;cursor:pointer}.ai-option input{width:13px;height:13px;margin:0;accent-color:#9b7aff;flex-shrink:0}.ai-options p{color:#747682;font-size:9px;line-height:1.5;margin:10px 0 0}.side-section{overflow-y:auto;max-height:calc(100vh - 150px)}
+
+/* Waveform overlay for audio clips extracted from the source media. */
+.waveform-bars{position:absolute;inset:3px 5px;display:flex;align-items:center;justify-content:space-around;gap:1px;overflow:hidden;pointer-events:none;opacity:.62;z-index:0}.waveform-bars i{display:block;flex:1;min-width:1px;max-width:3px;border-radius:2px;background:#a0f0c5}.clip-icon,.clip-name,.clip-duration{position:relative;z-index:1}.clip-block.green .clip-name,.clip-block.green .clip-duration{background:#205c45cc}
