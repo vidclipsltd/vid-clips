@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld("vidclips", {
   openProject: () => ipcRenderer.invoke("vidclips:open-project"),
   mediaUrlFromPath: (filePath) => ipcRenderer.invoke("vidclips:media-url", filePath),
   analyzeVideo: (filePath, options) => ipcRenderer.invoke("vidclips:analyze-video", filePath, options),
+  getAudioWaveform: (filePath) => ipcRenderer.invoke("vidclips:audio-waveform", filePath),
   onAnalysisProgress: (callback) => {
     const listener = (_event, message) => callback(message);
     ipcRenderer.on("vidclips:analysis-progress", listener);
