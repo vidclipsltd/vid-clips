@@ -1,4 +1,4 @@
-# VidClips Desktop (Windows)
+# VidClips (Windows)
 
 VidClips is the Windows Electron editor in this folder. It does not replace the GitHub Pages website or call the hosted Render backend for local video analysis. Selected video files are passed by local filesystem path to the Python pipeline in the repository root.
 
