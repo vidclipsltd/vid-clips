@@ -8,14 +8,18 @@
     "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron .\"",
     "build": "vite build",
     "start": "electron .",
-    "dist:win": "npm run build && electron-builder --win nsis"
+    "dist:win": "npm run build && electron-builder --win nsis",
+    "predev": "node scripts/generate-icon.cjs",
+    "prebuild": "node scripts/generate-icon.cjs"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "ffmpeg-static": "^5.2.0",
-    "ffprobe-static": "^3.1.0"
+    "ffprobe-static": "^3.1.0",
+    "sharp": "^0.33.5",
+    "png-to-ico": "^2.1.8"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
@@ -34,12 +38,14 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "assets/**/*",
       "package.json"
     ],
     "win": {
       "target": [
         "nsis"
-      ]
+      ],
+      "icon": "assets/vidclips.ico"
     },
     "nsis": {
       "oneClick": false,
@@ -70,6 +76,7 @@
         "from": "../docs/LIMITATIONS.md",
         "to": "vidclips-ai/docs/LIMITATIONS.md"
       }
-    ]
+    ],
+    "executableName": "VidClips"
   }
 }

@@ -1,0 +1,1 @@
+One-time marker to trigger the requested VidClips Windows build. Remove the push trigger from desktop-windows.yml after the build starts/completes so future builds remain manual-only.

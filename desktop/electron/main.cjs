@@ -4,6 +4,9 @@ const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { randomUUID } = require("node:crypto");
 
+app.setName("VidClips");
+if (process.platform === "win32") app.setAppUserModelId("com.vidclips.desktop");
+
 protocol.registerSchemesAsPrivileged([{ scheme: "vidclips-media", privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true } }]);
 const mediaPaths = new Map();
 function registerMediaPath(filePath) { const id = randomUUID(); mediaPaths.set(id, filePath); return "vidclips-media://asset/" + id; }
@@ -33,6 +36,40 @@ function runBinaryOutput(binary, args) {
       : reject(new Error(stderr || binary + " exited with code " + code)));
   });
 }
+ipcMain.handle("vidclips:audio-waveform", async (_event, filePath) => {
+  if (!filePath || typeof filePath !== "string") throw new Error("Select a valid media file.");
+  if (!await fs.stat(filePath).then((info) => info.isFile()).catch(() => false)) throw new Error("The audio source file could not be found.");
+  const ffmpeg = binaryPath("ffmpeg", ffmpegPackage);
+  return new Promise((resolve, reject) => {
+    const child = spawn(ffmpeg, ["-v", "error", "-i", filePath, "-vn", "-ac", "1", "-ar", "1000", "-f", "s16le", "pipe:1"], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    const chunks = [];
+    let bytes = 0;
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      bytes += chunk.length;
+      if (bytes > 64 * 1024 * 1024) { child.kill(); reject(new Error("Audio waveform extraction exceeded the 64 MB safety limit.")); return; }
+      chunks.push(chunk);
+    });
+    child.stderr.on("data", (chunk) => { stderr = (stderr + chunk.toString()).slice(-4000); });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code !== 0) return reject(new Error(stderr.trim() || "This file has no readable audio stream."));
+      const pcm = Buffer.concat(chunks);
+      const sampleCount = Math.floor(pcm.length / 2);
+      if (!sampleCount) return reject(new Error("No audio samples were found in this file."));
+      const windowSize = 64;
+      const peaks = [];
+      for (let start = 0; start < sampleCount; start += windowSize) {
+        let peak = 0;
+        const end = Math.min(sampleCount, start + windowSize);
+        for (let i = start; i < end; i++) peak = Math.max(peak, Math.abs(pcm.readInt16LE(i * 2)) / 32768);
+        peaks.push(Math.max(0.035, Math.min(1, peak)));
+      }
+      resolve(peaks);
+    });
+  });
+});
+
 ipcMain.handle("vidclips:export-mp4", async (_event, project) => {
   const clips = (Array.isArray(project?.clips) ? project.clips : [])
     .filter((clip) => clip.track === "V1" && clip.mediaPath && Number(clip.duration) > 0)
@@ -169,6 +206,7 @@ function createWindow() {
     minHeight: 650,
     backgroundColor: "#101114",
     title: "VidClips",
+    icon: path.join(__dirname, "../assets/vidclips.ico"),
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,

@@ -1,6 +1,6 @@
-# VidClips Desktop (Windows)
+# VidClips (Windows)
 
-VidClips Desktop is a separate Electron editor in this folder. It does not replace the GitHub Pages website or call the hosted Render backend for local video analysis. Selected video files are passed by local filesystem path to the Python pipeline in the repository root.
+VidClips is the Windows Electron editor in this folder. It does not replace the GitHub Pages website or call the hosted Render backend for local video analysis. Selected video files are passed by local filesystem path to the Python pipeline in the repository root.
 
 ## Requirements
 
@@ -49,7 +49,7 @@ npm install
 npm run dist:win
 ```
 
-The installer is generated under `desktop/release/`. GitHub Actions builds the Electron installer and uploads it as an artifact when desktop files change or the workflow is manually run.
+The installer is generated under `desktop/release/`. The Windows installer workflow is **manual-only**: it does not build on every push. Trigger it from GitHub Actions with **Run workflow**, or use the Colab notebook at `tools/VidClips_Windows_Build.ipynb` to request a build and download the installer artifact. The notebook needs a GitHub token with Actions read/write and repository contents read permissions.
 
 ## Current capabilities and honest limitations
 
@@ -69,3 +69,10 @@ The installer is generated under `desktop/release/`. GitHub Actions builds the E
 - Local AI CLI bridge: root `scripts/desktop_analyze_video.py`
 - Existing Python pipeline: root `app/pipelines/`, `app/analyzers/`, and `app/exporters/`
 - Vite build output: `dist/`
+
+
+## Branding and build-on-demand
+
+The app's native Windows icon is generated from `assets/vidclips.svg` by `scripts/generate-icon.cjs` before development and production builds. The installer product name is `VidClips`. Windows installers are only built when the GitHub Actions workflow is manually triggered; pushes do not create installers automatically.
+
+Google Colab runs Linux, so it should trigger the repository's Windows GitHub Actions runner rather than attempt to build a native Windows installer directly. Open `tools/VidClips_Windows_Build.ipynb` in Colab, run its cells, and paste a short-lived GitHub token only when prompted. The notebook requests a Windows build, waits for completion, then downloads the installer artifact.
