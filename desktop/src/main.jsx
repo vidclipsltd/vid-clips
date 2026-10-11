@@ -219,39 +219,40 @@ function App() {
       const sourceCuts = sourceTrack?.clips || [];
       if (!sourceCuts.length) throw new Error("Analysis finished, but no editable scene clips were returned.");
       const original = selectedClip;
+      const timelineOffset = Math.max(0, Number(original.start || 0) - Number(original.sourceIn || 0));
       const sceneClips = sourceCuts.map((scene, index) => {
         const sourceIn = Number(scene.source_start ?? scene.start ?? 0);
         const sourceOut = Number(scene.source_end ?? scene.end ?? original.duration);
         const duration = Math.max(0.05, sourceOut - sourceIn);
-        return { ...original, id: nextClipIdRef.current++, name: "AI Scene " + (index + 1), track: "V1", start: Number(scene.start ?? sourceIn), duration, sourceIn, sourceOut, color: index % 2 ? "teal" : "blue", aiGenerated: true };
+        return { ...original, id: nextClipIdRef.current++, name: "AI Scene " + (index + 1), track: "V1", start: timelineOffset + sourceIn, duration, sourceIn, sourceOut, color: index % 2 ? "teal" : "blue", aiGenerated: true };
       });
       const templateTracks = template?.tracks || [];
       const effectsTrack = templateTracks.find((track) => track.type === "effects");
       const transitionsTrack = templateTracks.find((track) => track.type === "transitions");
       const effectClips = (effectsTrack?.items || []).filter((item) => Number(item.end) > Number(item.start)).map((item, index) => ({
         id: nextClipIdRef.current++, name: "AI " + String(item.type || "Effect").replace(/_/g, " ") + " " + (index + 1),
-        track: "V2", start: Math.max(0, Number(item.start) || 0), duration: Math.max(0.15, (Number(item.end) || 0) - (Number(item.start) || 0)),
+        track: "V2", start: timelineOffset + Math.max(0, Number(item.start) || 0), duration: Math.max(0.15, (Number(item.end) || 0) - (Number(item.start) || 0)),
         color: "teal", aiGenerated: true, aiType: item.type, aiData: item
       }));
       const transitionClips = (transitionsTrack?.items || []).map((item, index) => ({
         id: nextClipIdRef.current++, name: "AI " + String(item.type || "Cut") + " " + (index + 1),
-        track: "V2", start: Math.max(0, Number(item.start) || 0), duration: Math.max(0.12, Number(item.duration) || 0.12),
+        track: "V2", start: timelineOffset + Math.max(0, Number(item.start) || 0), duration: Math.max(0.12, Number(item.duration) || 0.12),
         color: "purple", aiGenerated: true, aiType: "transition", aiData: item
       }));
       const markers = template?.markers || {};
       const beatValues = markers.beats || [];
       const beatClips = beatValues.map((beat, index) => {
         const at = typeof beat === "number" ? beat : Number(beat?.time_sec ?? beat?.timestamp_sec ?? beat?.start_sec ?? beat?.time ?? beat?.start ?? 0);
-        return { id: nextClipIdRef.current++, name: "Beat " + (index + 1), track: "A1", start: Math.max(0, at), duration: 0.12, color: "green", aiGenerated: true, aiType: "beat" };
+        return { id: nextClipIdRef.current++, name: "Beat " + (index + 1), track: "A1", start: timelineOffset + Math.max(0, at), duration: 0.12, color: "green", aiGenerated: true, aiType: "beat" };
       }).filter((clip) => Number.isFinite(clip.start));
       const objectClips = (markers.objects || []).map((item, index) => ({
         id: nextClipIdRef.current++, name: "Object: " + (item.label || "Detected") + (item.track_id == null ? "" : " #" + item.track_id),
-        track: "V2", start: Math.max(0, Number(item.start) || 0), duration: Math.max(0.12, (Number(item.end) || 0) - (Number(item.start) || 0)),
+        track: "V2", start: timelineOffset + Math.max(0, Number(item.start) || 0), duration: Math.max(0.12, (Number(item.end) || 0) - (Number(item.start) || 0)),
         color: "purple", aiGenerated: true, aiType: "object", aiData: item
       }));
       const peopleClips = (markers.people || []).map((item, index) => ({
         id: nextClipIdRef.current++, name: "Person analysis " + (index + 1),
-        track: "V2", start: Math.max(0, Number(item.time) || 0), duration: 0.12,
+        track: "V2", start: timelineOffset + Math.max(0, Number(item.time) || 0), duration: 0.12,
         color: "teal", aiGenerated: true, aiType: "people", aiData: item
       }));
       const maskClips = (markers.segmentation || []).map((item, index) => ({
@@ -266,14 +267,15 @@ function App() {
       }));
       const transcriptClips = (markers.transcript || []).map((item, index) => ({
         id: nextClipIdRef.current++, name: "Speech: " + String(item.text || "Transcript").slice(0, 48),
-        track: "A1", start: Math.max(0, Number(item.start_sec) || 0), duration: Math.max(0.12, (Number(item.end_sec) || 0) - (Number(item.start_sec) || 0)),
+        track: "A1", start: timelineOffset + Math.max(0, Number(item.start_sec) || 0), duration: Math.max(0.12, (Number(item.end_sec) || 0) - (Number(item.start_sec) || 0)),
         color: "green", aiGenerated: true, aiType: "transcript", aiData: item
       }));
       const overlayClips = [...effectClips, ...transitionClips, ...beatClips, ...objectClips, ...peopleClips, ...maskClips, ...depthClips, ...transcriptClips];
       setClips((items) => [...items.filter((clip) => clip.id !== original.id && !clip.aiGenerated), ...sceneClips, ...overlayClips]);
       setSelected(sceneClips[0]?.id ?? null);
       setPlayhead(sceneClips[0]?.start ?? 0);
-      setAnalysisResults(template);
+      const timelineMarkers = { ...(template?.markers || {}), scenes: (template?.markers?.scenes || []).map((scene) => ({ ...scene, start_sec: timelineOffset + Number(scene.start_sec ?? scene.start ?? 0) })) };
+      setAnalysisResults({ ...template, markers: timelineMarkers });
       const statuses = Object.entries(result.analyzers || {}).map(([name, info]) => name + ": " + info.status + (info.error ? " (" + info.error + ")" : ""));
       setAnalysisStatus(statuses.join(" · "));
       const extraTracks = (template?.tracks || []).filter((track) => track.type !== "video").length;
