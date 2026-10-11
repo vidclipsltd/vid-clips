@@ -203,6 +203,7 @@ function createWindow() {
     minHeight: 650,
     backgroundColor: "#101114",
     title: "VidClips",
+    icon: path.join(__dirname, "../assets/vidclips.ico"),
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
