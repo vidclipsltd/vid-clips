@@ -12,3 +12,6 @@
 
 /* Waveform overlay for audio clips extracted from the source media. */
 .waveform-bars{position:absolute;inset:3px 5px;display:flex;align-items:center;justify-content:space-around;gap:1px;overflow:hidden;pointer-events:none;opacity:.62;z-index:0}.waveform-bars i{display:block;flex:1;min-width:1px;max-width:3px;border-radius:2px;background:#a0f0c5}.clip-icon,.clip-name,.clip-duration{position:relative;z-index:1}.clip-block.green .clip-name,.clip-block.green .clip-duration{background:#205c45cc}
+
+/* Explicit AI-detected cut boundaries on the main video track. */
+.scene-cut-marker{position:absolute;top:0;bottom:0;width:2px;background:#ffd166;box-shadow:0 0 0 1px #10111499;z-index:3;pointer-events:none}
