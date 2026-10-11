@@ -38,6 +38,7 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "assets/**/*",
       "package.json"
     ],
     "win": {
@@ -75,6 +76,7 @@
         "from": "../docs/LIMITATIONS.md",
         "to": "vidclips-ai/docs/LIMITATIONS.md"
       }
-    ]
+    ],
+    "executableName": "VidClips"
   }
 }
