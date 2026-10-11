@@ -2,10 +2,6 @@ name: Desktop Windows build
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - "desktop/**"
-      - ".github/workflows/desktop-windows.yml"
 
 jobs:
   build:
@@ -24,6 +20,8 @@ jobs:
         with:
           node-version: 20
       - run: npm install
+      - name: Generate VidClips Windows icon
+        run: node scripts/generate-icon.cjs
       - run: npm run build
       - run: npm run dist:win
       - uses: actions/upload-artifact@v4
