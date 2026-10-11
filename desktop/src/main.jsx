@@ -257,12 +257,12 @@ function App() {
       }));
       const maskClips = (markers.segmentation || []).map((item, index) => ({
         id: nextClipIdRef.current++, name: "Person mask " + (index + 1),
-        track: "V2", start: Math.max(0, Number(item.time) || 0), duration: 0.12,
+        track: "V2", start: timelineOffset + Math.max(0, Number(item.time) || 0), duration: 0.12,
         color: "teal", aiGenerated: true, aiType: "segmentation", aiData: item
       }));
       const depthClips = (markers.depth || []).map((item, index) => ({
         id: nextClipIdRef.current++, name: "Depth map " + (index + 1),
-        track: "V2", start: Math.max(0, Number(item.time) || 0), duration: 0.12,
+        track: "V2", start: timelineOffset + Math.max(0, Number(item.time) || 0), duration: 0.12,
         color: "purple", aiGenerated: true, aiType: "depth", aiData: item
       }));
       const transcriptClips = (markers.transcript || []).map((item, index) => ({
