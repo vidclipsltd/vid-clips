@@ -2,6 +2,9 @@ name: Desktop Windows build
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - "tools/BUILD_NOW_2026-10-11.txt"
 
 jobs:
   build:
