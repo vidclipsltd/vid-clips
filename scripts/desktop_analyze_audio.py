@@ -107,6 +107,9 @@ def main() -> int:
             transcript = {"language": None, "text": "", "segments": [], "status": "unavailable", "error": str(exc)}
             print("Transcription unavailable: " + str(exc), flush=True)
 
+        from app.analyzers.sound_event_classifier import classify_sound_events
+        semantic_result = classify_sound_events(signal, sample_rate)
+        semantic_events = semantic_result.get("events", [])
         # Lightweight energy/spectral transient candidates, not semantic labels.
         print("Detecting prominent sound transients…", flush=True)
         flux = librosa.onset.onset_strength(y=signal, sr=sample_rate)
@@ -116,6 +119,7 @@ def main() -> int:
         for frame in onset_frames[:500]:
             time_sec = float(librosa.frames_to_time([frame], sr=sample_rate)[0])
             events.append({"label": "sound transient", "start_sec": round(max(0, time_sec - 0.05), 3), "end_sec": round(time_sec + 0.25, 3), "confidence": None, "method": "onset-energy heuristic"})
+        events = semantic_events + events
         separation = {"status": "not_available", "stems": [], "note": "Demucs is not installed or source separation failed."}
         try:
             print("Separating audio into local stems (CPU; first run downloads model weights)…", flush=True)
@@ -149,7 +153,7 @@ def main() -> int:
             "music": {"estimated_bpm": round(tempo_value, 2), "beat_timestamps_sec": [round(float(t), 3) for t in beat_times]},
             "volume": {"rms_mean": round(float(np.sqrt(np.mean(signal ** 2))), 5), "peak": round(float(np.max(np.abs(signal))), 5)},
             "sound_events": events,
-            "classification": {"status": "heuristic_only", "note": "Speech/music/effect semantic classification requires a dedicated model and is not inferred from transient detections."},
+            "classification": {key: value for key, value in semantic_result.items() if key != "events"},
             "separation": separation,
             "notes": ["Runs locally on CPU; source media is not uploaded.", "Sound-event candidates are generic transients, not reliable semantic event labels."]
         }
