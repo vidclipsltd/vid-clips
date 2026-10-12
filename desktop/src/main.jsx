@@ -287,11 +287,19 @@ function App() {
       (data.silence_segments || []).forEach((item) => add("Silence", "silence", item.start_sec, item.end_sec, item));
       (data.music?.beat_timestamps_sec || []).forEach((time, index) => add("Beat " + (index + 1), "beat", time, Number(time) + 0.08, { time, bpm: data.music?.estimated_bpm }));
       (data.sound_events || []).forEach((item) => add(item.label || "Sound transient", "sound-event", item.start_sec, item.end_sec, item));
-      setClips((items) => [...items.filter((clip) => !(clip.aiGenerated && ["transcript", "word", "silence", "beat", "sound-event"].includes(clip.aiType))), ...generated]);
+      const stemClips = [];
+      for (const stem of data.separation?.stems || []) {
+        if (!stem.path || !window.vidclips?.mediaUrlFromPath) continue;
+        try {
+          const mediaUrl = await window.vidclips.mediaUrlFromPath(stem.path);
+          stemClips.push({ id: nextClipIdRef.current++, name: stem.name || (stem.type + " stem"), fileName: stem.name || stem.type, mediaPath: stem.path, mediaUrl, track: "A1", start: offset, duration: Number(data.duration_sec) || selectedClip.duration, sourceIn: 0, sourceOut: Number(data.duration_sec) || selectedClip.duration, color: "teal", audioOnly: true, separatedStem: true, stemType: stem.type, gain: 1, muted: false });
+        } catch {}
+      }
+      setClips((items) => [...items.filter((clip) => !(clip.aiGenerated && ["transcript", "word", "silence", "beat", "sound-event"].includes(clip.aiType)) && !clip.separatedStem), ...generated, ...stemClips]);
       setAnalysisResults((previous) => ({ ...(previous || {}), audio: data }));
       setAnalysisStatus("Audio analysis complete");
       setAnalysisProgress("Saved locally");
-      setNotice("Audio analysis complete: " + generated.length + " timeline markers. See results for model limitations.");
+      setNotice("Audio analysis complete: " + generated.length + " timeline markers and " + stemClips.length + " playable separated stems.");
     } catch (error) { setNotice("Audio analysis failed: " + (error?.message || String(error))); }
     finally { setAudioAnalyzing(false); }
   }
