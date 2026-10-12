@@ -116,6 +116,29 @@ def main() -> int:
         for frame in onset_frames[:500]:
             time_sec = float(librosa.frames_to_time([frame], sr=sample_rate)[0])
             events.append({"label": "sound transient", "start_sec": round(max(0, time_sec - 0.05), 3), "end_sec": round(time_sec + 0.25, 3), "confidence": None, "method": "onset-energy heuristic"})
+        separation = {"status": "not_available", "stems": [], "note": "Demucs is not installed or source separation failed."}
+        try:
+            print("Separating audio into local stems (CPU; first run downloads model weights)…", flush=True)
+            stem_root = output_root / "separated"
+            sep = subprocess.run(
+                [sys.executable, "-m", "demucs", "-n", "htdemucs", "--device", "cpu", "-o", str(stem_root), str(wav_path)],
+                capture_output=True, text=True, timeout=10800,
+            )
+            if sep.returncode == 0:
+                model_dir = stem_root / "htdemucs" / wav_path.stem
+                stems = []
+                for stem_name in ("vocals", "drums", "bass", "other"):
+                    stem_path = model_dir / (stem_name + ".wav")
+                    if stem_path.is_file():
+                        stems.append({"type": stem_name, "path": str(stem_path), "name": stem_name.title() + " stem"})
+                separation = {"status": "complete" if stems else "empty", "stems": stems, "note": "Demucs htdemucs stems are vocals, drums, bass and other; they are not semantic speech/music/SFX tracks."}
+            else:
+                separation = {"status": "failed", "stems": [], "note": (sep.stderr or sep.stdout or "Demucs failed.")[-900:]}
+        except FileNotFoundError:
+            separation = {"status": "not_installed", "stems": [], "note": "Install requirements.txt to enable local Demucs source separation."}
+        except Exception as exc:
+            separation = {"status": "failed", "stems": [], "note": str(exc)}
+
         output = {
             "has_audio": True,
             "source_path": str(source),
@@ -127,7 +150,7 @@ def main() -> int:
             "volume": {"rms_mean": round(float(np.sqrt(np.mean(signal ** 2))), 5), "peak": round(float(np.max(np.abs(signal))), 5)},
             "sound_events": events,
             "classification": {"status": "heuristic_only", "note": "Speech/music/effect semantic classification requires a dedicated model and is not inferred from transient detections."},
-            "separation": {"status": "not_configured", "stems": [], "note": "Install and configure a compatible local Demucs model to generate real separated stems."},
+            "separation": separation,
             "notes": ["Runs locally on CPU; source media is not uploaded.", "Sound-event candidates are generic transients, not reliable semantic event labels."]
         }
         emit({"ok": True, "local": True, "uploaded": False, "device": "cpu", "analysis": output})
