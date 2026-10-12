@@ -71,43 +71,76 @@ ipcMain.handle("vidclips:audio-waveform", async (_event, filePath) => {
 });
 
 ipcMain.handle("vidclips:export-mp4", async (_event, project) => {
-  const clips = (Array.isArray(project?.clips) ? project.clips : [])
-    .filter((clip) => clip.track === "V1" && clip.mediaPath && Number(clip.duration) > 0)
-    .sort((a, b) => Number(a.start) - Number(b.start));
-  if (!clips.length) throw new Error("Add at least one imported video clip to track V1 before exporting.");
+  const all = (Array.isArray(project?.clips) ? project.clips : []).filter((clip) => clip.mediaPath && Number(clip.duration) > 0 && !clip.aiGenerated);
+  const videos = all.filter((clip) => clip.track === "V1" && !clip.audioOnly).sort((a, b) => Number(a.start) - Number(b.start));
+  if (!videos.length) throw new Error("Add at least one video clip to V1 before exporting an MP4.");
   const save = await dialog.showSaveDialog({ defaultPath: (project.projectName || "VidClips export").replace(/[<>:"/\\|?*]/g, "-") + ".mp4", filters: [{ name: "MP4 video", extensions: ["mp4"] }] });
   if (save.canceled || !save.filePath) return { canceled: true };
   const ffmpeg = binaryPath("ffmpeg", ffmpegPackage);
-  const ffprobe = binaryPath("ffprobe", ffprobePackage.path);
   const args = ["-y"];
-  for (const clip of clips) {
+  const sources = [];
+  for (const clip of all) {
     if (!await fs.stat(clip.mediaPath).then(() => true).catch(() => false)) throw new Error("Source file not found: " + clip.mediaPath);
+    const index = sources.length;
+    sources.push(clip);
     args.push("-i", clip.mediaPath);
   }
   const filters = [];
-  const concatInputs = [];
-  for (let i = 0; i < clips.length; i++) {
-    const clip = clips[i];
-    const sourceIn = Math.max(0, Number(clip.sourceIn) || 0);
+  const videoSegments = [];
+  let cursor = 0;
+  for (let i = 0; i < videos.length; i++) {
+    const clip = videos[i], input = sources.findIndex((source) => source === clip);
+    const start = Math.max(cursor, Number(clip.start) || 0);
+    const gap = start - cursor;
+    if (gap > 0.001) {
+      filters.push("color=c=black:s=1280x720:r=30:d=" + gap + ",format=yuv420p,setpts=PTS-STARTPTS[vblank" + i + "]");
+      videoSegments.push("[vblank" + i + "]");
+    }
     const duration = Math.max(0.05, Number(clip.duration));
-    const brightness = Math.max(0, Math.min(2, Number(clip.brightness ?? 1)));
+    const sourceIn = Math.max(0, Number(clip.sourceIn) || 0);
+    const brightness = Math.max(0, Math.min(2, Number(clip.brightness ?? 1))) - 1;
     const contrast = Math.max(0, Math.min(2, Number(clip.contrast ?? 1)));
     const saturation = Math.max(0, Math.min(2, Number(clip.saturation ?? 1)));
-    filters.push("[" + i + ":v:0]trim=start=" + sourceIn + ":duration=" + duration + ",setpts=PTS-STARTPTS,eq=brightness=" + (brightness - 1) + ":contrast=" + contrast + ":saturation=" + saturation + ",scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30[v" + i + "]");
-    let hasAudio = false;
-    try {
-      const probeArgs = ["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=index", "-of", "csv=p=0", clip.mediaPath];
-      const probe = await runBinaryOutput(ffprobe, probeArgs);
-      hasAudio = Boolean(probe.stdout.trim());
-    } catch {}
-    if (hasAudio) filters.push("[" + i + ":a:0]atrim=start=" + sourceIn + ":duration=" + duration + ",asetpts=PTS-STARTPTS,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[a" + i + "]");
-    else filters.push("anullsrc=r=48000:cl=stereo,atrim=duration=" + duration + "[a" + i + "]");
-    concatInputs.push("[v" + i + "][a" + i + "]");
+    filters.push("[" + input + ":v:0]trim=start=" + sourceIn + ":duration=" + duration + ",setpts=PTS-STARTPTS,eq=brightness=" + brightness + ":contrast=" + contrast + ":saturation=" + saturation + ",scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,format=yuv420p[vclip" + i + "]");
+    videoSegments.push("[vclip" + i + "]");
+    cursor = start + duration;
   }
-  filters.push(concatInputs.join("") + "concat=n=" + clips.length + ":v=1:a=1[outv][outa]");
-  args.push("-filter_complex", filters.join(";"), "-map", "[outv]", "-map", "[outa]", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", save.filePath);
+  const totalDuration = Math.max(cursor, ...all.map((clip) => (Number(clip.start) || 0) + Number(clip.duration)));
+  filters.push(videoSegments.join("") + "concat=n=" + videoSegments.length + ":v=1:a=0[outv]");
+  const audioInputs = [];
+  const linkedVideoIds = new Set(all.filter((clip) => clip.linkedVideoId != null && clip.track.startsWith("A")).map((clip) => clip.linkedVideoId));
+  for (let i = 0; i < all.length; i++) {
+    const clip = all[i];
+    const isAudio = clip.track.startsWith("A") || clip.audioOnly || clip.separatedStem;
+    if (!isAudio) {
+      if (!linkedVideoIds.has(clip.id)) {
+        const probe = await runBinaryOutput(binaryPath("ffprobe", ffprobePackage.path), ["-v","error","-select_streams","a:0","-show_entries","stream=index","-of","csv=p=0",clip.mediaPath]).catch(() => ({stdout:""}));
+        if (probe.stdout.trim()) {
+          const label = "audsrc" + i;
+          filters.push("[" + i + ":a:0]atrim=start=" + Math.max(0, Number(clip.sourceIn) || 0) + ":duration=" + Number(clip.duration) + ",asetpts=PTS-STARTPTS,adelay=" + Math.round(Math.max(0, Number(clip.start) || 0) * 1000) + "|" + Math.round(Math.max(0, Number(clip.start) || 0) * 1000) + ",volume=" + Math.max(0, Math.min(1, Number(clip.gain ?? 1))) + (clip.muted ? ",volume=0" : "") + "[ " + label + " ]".replace(/ /g,""));
+          audioInputs.push("[" + label + "]");
+        }
+      }
+      continue;
+    }
+    const label = "audsrc" + i;
+    const sourceIn = Math.max(0, Number(clip.sourceIn) || 0);
+    const duration = Math.max(0.05, Number(clip.duration));
+    const delay = Math.round(Math.max(0, Number(clip.start) || 0) * 1000);
+    const gain = clip.muted ? 0 : Math.max(0, Math.min(4, Number(clip.gain ?? 1)));
+    const stream = await runBinaryOutput(binaryPath("ffprobe", ffprobePackage.path), ["-v","error","-select_streams","a:0","-show_entries","stream=index","-of","csv=p=0",clip.mediaPath]).catch(() => ({stdout:""}));
+    if (!stream.stdout.trim()) continue;
+    filters.push("[" + i + ":a:0]atrim=start=" + sourceIn + ":duration=" + duration + ",asetpts=PTS-STARTPTS,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,volume=" + gain + ",adelay=" + delay + "|" + delay + "[" + label + "]");
+    audioInputs.push("[" + label + "]");
+  }
+  if (audioInputs.length) {
+    filters.push(audioInputs.join("") + "amix=inputs=" + audioInputs.length + ":duration=longest:dropout_transition=0,apad,atrim=duration=" + totalDuration + ",asetpts=PTS-STARTPTS[outa]");
+  } else {
+    filters.push("anullsrc=r=48000:cl=stereo,atrim=duration=" + totalDuration + "[outa]");
+  }
+  args.push("-filter_complex", filters.join(";"), "-map", "[outv]", "-map", "[outa]", "-t", String(totalDuration), "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", save.filePath);
   await runBinary(ffmpeg, args);
-  return { canceled: false, filePath: save.filePath, clips: clips.length };
+  return { canceled: false, filePath: save.filePath, clips: videos.length, audioClips: audioInputs.length };
 });
 
 ipcMain.handle("vidclips:analyze-video", async (event, filePath, options = {}) => {
