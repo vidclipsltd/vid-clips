@@ -15,3 +15,6 @@
 
 /* Explicit AI-detected cut boundaries on the main video track. */
 .scene-cut-marker{position:absolute;top:0;bottom:0;width:2px;background:#ffd166;box-shadow:0 0 0 1px #10111499;z-index:3;pointer-events:none}
+
+/* Audio elements are controlled by the timeline transport, not standalone player controls. */
+.preview-screen audio{display:none}
