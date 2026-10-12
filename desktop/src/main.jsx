@@ -90,7 +90,7 @@ function App() {
   function deleteSelected() {
     if (!selectedClip) return;
     const deletingVideo = selectedClip.track.startsWith("V") && !selectedClip.audioOnly;
-    setClips((items) => items.filter((clip) => clip.id !== selected && !(deletingVideo && clip.linkedVideoId === selected)));
+    setClips((items) => items.filter((clip) => clip.id !== selected));
     setSelected(null);
     setNotice(deletingVideo ? "Video deleted; linked audio remains playable on A1." : "Timeline clip deleted; source media was kept.");
   }
@@ -267,6 +267,35 @@ function App() {
     }
   }
 
+  async function analyzeSelectedAudio() {
+    if (!selectedClip?.mediaPath || !window.vidclips?.analyzeAudio) { setNotice("Select imported desktop media first."); return; }
+    setAudioAnalyzing(true); setAnalysisProgress("Starting local Audio Analyser…");
+    try {
+      const result = await window.vidclips.analyzeAudio(selectedClip.mediaPath);
+      const data = result.analysis || result;
+      const offset = Math.max(0, Number(selectedClip.start) || 0);
+      const generated = [];
+      const add = (name, type, start, end, aiData) => {
+        const localStart = Math.max(0, Number(start) || 0);
+        const localEnd = Math.max(localStart + 0.05, Number(end) || localStart + 0.12);
+        generated.push({ id: nextClipIdRef.current++, name, track: "A1", start: offset + localStart, duration: localEnd - localStart, sourceIn: localStart, sourceOut: localEnd, color: type === "silence" ? "purple" : "green", aiGenerated: true, aiType: type, aiData });
+      };
+      (data.transcript?.segments || []).forEach((item) => {
+        add("Speech: " + String(item.text || "").slice(0, 38), "transcript", item.start_sec, item.end_sec, item);
+        (item.words || []).forEach((word) => add("Word: " + word.text, "word", word.start_sec, word.end_sec, word));
+      });
+      (data.silence_segments || []).forEach((item) => add("Silence", "silence", item.start_sec, item.end_sec, item));
+      (data.music?.beat_timestamps_sec || []).forEach((time, index) => add("Beat " + (index + 1), "beat", time, Number(time) + 0.08, { time, bpm: data.music?.estimated_bpm }));
+      (data.sound_events || []).forEach((item) => add(item.label || "Sound transient", "sound-event", item.start_sec, item.end_sec, item));
+      setClips((items) => [...items.filter((clip) => !(clip.aiGenerated && ["transcript", "word", "silence", "beat", "sound-event"].includes(clip.aiType))), ...generated]);
+      setAnalysisResults((previous) => ({ ...(previous || {}), audio: data }));
+      setAnalysisStatus("Audio analysis complete");
+      setAnalysisProgress("Saved locally");
+      setNotice("Audio analysis complete: " + generated.length + " timeline markers. See results for model limitations.");
+    } catch (error) { setNotice("Audio analysis failed: " + (error?.message || String(error))); }
+    finally { setAudioAnalyzing(false); }
+  }
+
   async function openProject() {
     if (!window.vidclips?.openProject) { setNotice("Open project is available in the Windows desktop app."); return; }
     try {
@@ -329,7 +358,7 @@ function App() {
       <header className="topbar">
         <div className="brand"><div className="brand-mark"><Film size={19} /></div><span>VidClips</span></div>
         <div className="project-title"><input aria-label="Project name" value={projectName} onChange={(e) => setProjectName(e.target.value)} /><span>Saved locally when exported</span></div>
-        <div className="top-actions"><button className="button quiet" onClick={openProject}><FolderOpen size={16} /> Open project</button><button className="button quiet" disabled={analyzing || !selectedClip?.mediaPath} onClick={analyzeSelectedVideo}>{analyzing ? "Analyzing…" : "AI Analyze"}</button><button className="button quiet" onClick={() => addClip("V1")}><Plus size={16} /> Add clip</button><button className="button quiet" disabled={exporting || clips.every((clip) => clip.track !== "V1" || !clip.mediaPath)} onClick={exportMp4}>{exporting ? "Exporting…" : "Export MP4"}</button><button className="button primary" onClick={saveProject}><Save size={16} /> Save project</button></div>
+        <div className="top-actions"><button className="button quiet" onClick={openProject}><FolderOpen size={16} /> Open project</button><button className="button quiet" disabled={audioAnalyzing || !selectedClip?.mediaPath} onClick={analyzeSelectedAudio}>{audioAnalyzing ? "Audio…" : "Audio Analyse"}</button><button className="button quiet" disabled={analyzing || !selectedClip?.mediaPath} onClick={analyzeSelectedVideo}>{analyzing ? "Analyzing…" : "AI Analyze"}</button><button className="button quiet" onClick={() => addClip("V1")}><Plus size={16} /> Add clip</button><button className="button quiet" disabled={exporting || clips.every((clip) => clip.track !== "V1" || !clip.mediaPath)} onClick={exportMp4}>{exporting ? "Exporting…" : "Export MP4"}</button><button className="button primary" onClick={saveProject}><Save size={16} /> Save project</button></div>
       </header>
 
       <div className="workspace">
