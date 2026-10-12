@@ -25,6 +25,8 @@ function App() {
   const [mediaFiles, setMediaFiles] = useState([]);
   const fileInputRef = useRef(null);
   const videoRef = useRef(null);
+  const audioRefs = useRef(new Map());
+  const [audioAnalyzing, setAudioAnalyzing] = useState(false);
   const nextClipIdRef = useRef(1);
 
   useEffect(() => {
@@ -42,44 +44,26 @@ function App() {
 
   function importMedia(event) {
     const files = Array.from(event.target.files || []);
-    const videoExtensions = /\.(mp4|m4v|mov|webm|mkv|avi|ogv|mpeg|mpg)$/i;
-    const videos = files.filter((file) => (file.type || "").startsWith("video/") || videoExtensions.test(file.name));
-    if (!videos.length) {
-      setNotice("Choose a video file such as MP4, MOV, or WebM");
-      event.target.value = "";
-      return;
-    }
-    const imported = videos.map((file) => ({
-      id: null,
-      name: file.name.replace(/\.[^.]+$/, ""),
-      fileName: file.name,
-      url: URL.createObjectURL(file),
-      file
-    }));
-    setMediaFiles((items) => [...items, ...imported]);
-    imported.forEach((item) => {
-      const file = item.file;
-      const url = item.url;
-      const clipId = nextClipIdRef.current++;
-      const probe = document.createElement("video");
-      probe.preload = "metadata";
-      probe.src = url;
+    const videoExt = /\.(mp4|m4v|mov|webm|mkv|avi|ogv|mpeg|mpg)$/i;
+    const audioExt = /\.(wav|mp3|m4a|aac|flac|ogg|opus|wma)$/i;
+    const media = files.filter((file) => (file.type || "").startsWith("video/") || (file.type || "").startsWith("audio/") || videoExt.test(file.name) || audioExt.test(file.name));
+    if (!media.length) { setNotice("Choose a video or audio file."); event.target.value = ""; return; }
+    media.forEach((file) => {
+      const isAudio = (file.type || "").startsWith("audio/") || audioExt.test(file.name);
+      const url = URL.createObjectURL(file);
+      const probe = document.createElement(isAudio ? "audio" : "video");
+      probe.preload = "metadata"; probe.src = url;
       probe.onloadedmetadata = () => {
         const duration = Number.isFinite(probe.duration) && probe.duration > 0 ? probe.duration : 4;
-        const clip = { id: clipId, name: file.name.replace(/\.[^.]+$/, ""), fileName: file.name, mediaUrl: url, track: "V1", start: Math.max(0, playhead), duration, sourceIn: 0, sourceOut: duration, color: "blue" };
-        setClips((items) => [...items, clip]);
-        setSelected(clipId);
-        setPlayhead(clip.start);
-        setNotice("Imported " + file.name + " to the timeline");
+        const id = nextClipIdRef.current++;
+        const clip = { id, name: file.name.replace(/\.[^.]+$/, ""), fileName: file.name, mediaUrl: url, track: isAudio ? "A1" : "V1", start: Math.max(0, playhead), duration, sourceIn: 0, sourceOut: duration, color: isAudio ? "green" : "blue", audioOnly: isAudio, gain: 1, muted: false };
+        setClips((items) => [...items, clip]); setSelected(id); setPlayhead(clip.start);
+        setMediaFiles((items) => [...items, { id, url, name: clip.name, fileName: file.name, file }]);
+        setNotice("Imported " + file.name + (isAudio ? " as playable audio" : " to V1"));
       };
-      probe.onerror = () => {
-        URL.revokeObjectURL(url);
-        setMediaFiles((items) => items.filter((media) => media.url !== url));
-        setNotice("Could not read metadata for " + file.name + ". The file may be damaged or use an unsupported container.");
-      };
+      probe.onerror = () => { URL.revokeObjectURL(url); setNotice("Could not read metadata for " + file.name); };
     });
-    setNotice("Loading video metadata…");
-    event.target.value = "";
+    setNotice("Loading media metadata…"); event.target.value = "";
   }
 
   function addClip(track = "V1") {
@@ -105,9 +89,10 @@ function App() {
 
   function deleteSelected() {
     if (!selectedClip) return;
-    setClips((items) => items.filter((clip) => clip.id !== selected));
+    const deletingVideo = selectedClip.track.startsWith("V") && !selectedClip.audioOnly;
+    setClips((items) => items.filter((clip) => clip.id !== selected && !(deletingVideo && clip.linkedVideoId === selected)));
     setSelected(null);
-    setNotice("Selected clip deleted");
+    setNotice(deletingVideo ? "Video deleted; linked audio remains playable on A1." : "Timeline clip deleted; source media was kept.");
   }
 
   function beginClipDrag(event, clipId) {
@@ -161,35 +146,29 @@ function App() {
     if (!window.vidclips?.openMediaFiles) { fileInputRef.current?.click(); return; }
     try {
       const files = await window.vidclips.openMediaFiles();
-      if (!files?.length) return;
-      files.forEach((file) => {
-        const url = file.url;
-        const probe = document.createElement("video");
-        probe.preload = "metadata";
-        probe.src = url;
-        const id = nextClipIdRef.current++;
+      for (const file of files || []) {
+        const isAudio = file.kind === "audio" || /\.(wav|mp3|m4a|aac|flac|ogg|opus|wma)$/i.test(file.name);
+        const probe = document.createElement(isAudio ? "audio" : "video");
+        probe.preload = "metadata"; probe.src = file.url;
         probe.onloadedmetadata = () => {
           const duration = Number.isFinite(probe.duration) && probe.duration > 0 ? probe.duration : 0;
           if (!duration) { setNotice("Could not read duration for " + file.name); return; }
-          const start = Math.max(0, playhead);
-          const clip = { id, name: file.name.replace(/\.[^.]+$/, ""), fileName: file.name, mediaPath: file.path, mediaUrl: url, track: "V1", start, duration, sourceIn: 0, sourceOut: duration, color: "blue" };
-          const audioId = nextClipIdRef.current++;
-          const audioClip = { id: audioId, name: file.name.replace(/\.[^.]+$/, "") + " audio", fileName: file.name, mediaPath: file.path, mediaUrl: url, track: "A1", start, duration, sourceIn: 0, sourceOut: duration, color: "green", audioOnly: true, waveform: null };
-          setClips((items) => [...items, clip, audioClip]);
-          if (window.vidclips?.getAudioWaveform) {
-            window.vidclips.getAudioWaveform(file.path).then((waveform) => {
-              setClips((items) => items.map((item) => item.id === audioId ? { ...item, waveform } : item));
-            }).catch((error) => setNotice("Audio imported; waveform unavailable: " + error.message));
+          const id = nextClipIdRef.current++, start = Math.max(0, playhead);
+          const clip = { id, name: file.name.replace(/\.[^.]+$/, ""), fileName: file.name, mediaPath: file.path, mediaUrl: file.url, track: isAudio ? "A1" : "V1", start, duration, sourceIn: 0, sourceOut: duration, color: isAudio ? "green" : "blue", audioOnly: isAudio, gain: 1, muted: false };
+          setClips((items) => [...items, clip]); setSelected(id); setPlayhead(start);
+          setMediaFiles((items) => [...items, { ...file, id, name: clip.name, url: file.url }]);
+          if (window.vidclips?.getAudioWaveform) window.vidclips.getAudioWaveform(file.path).then((waveform) => setClips((items) => items.map((item) => item.id === id ? { ...item, waveform } : item))).catch(() => {});
+          if (!isAudio) {
+            const audioId = nextClipIdRef.current++;
+            const linked = { ...clip, id: audioId, name: clip.name + " audio", track: "A1", color: "green", audioOnly: true, linkedVideoId: id, waveform: null };
+            setClips((items) => [...items, linked]);
+            if (window.vidclips?.getAudioWaveform) window.vidclips.getAudioWaveform(file.path).then((waveform) => setClips((items) => items.map((item) => item.id === audioId ? { ...item, waveform } : item))).catch(() => {});
           }
-          setMediaFiles((items) => [...items, { ...file, id, url, name: file.name.replace(/\.[^.]+$/, "") }]);
-          setSelected(id);
-          setPlayhead(clip.start);
-          setNotice("Imported " + file.name + " (" + duration.toFixed(2) + " s)");
+          setNotice("Imported " + file.name + (isAudio ? " as playable audio" : " with separate editable audio"));
         };
-        probe.onerror = () => setNotice("Cannot read " + file.name + ". Try H.264 MP4 or WebM.");
-      });
-      setNotice("Reading selected video metadata…");
-    } catch (error) { setNotice("Video import failed: " + error.message); }
+        probe.onerror = () => setNotice("Cannot read " + file.name + ". Check the media format.");
+      }
+    } catch (error) { setNotice("Media import failed: " + error.message); }
   }
 
   async function exportMp4() {
@@ -308,6 +287,43 @@ function App() {
     } catch (error) { setNotice("Could not open project: " + error.message); }
   }
 
+  useEffect(() => {
+    if (!playing) { audioRefs.current.forEach((audio) => audio.pause()); if (videoRef.current) videoRef.current.pause(); return undefined; }
+    let frame, last = performance.now();
+    const tick = (now) => {
+      const delta = Math.min(0.1, Math.max(0, (now - last) / 1000)); last = now;
+      setPlayhead((current) => {
+        const video = clips.find((clip) => clip.id === selected && clip.track.startsWith("V") && !clip.audioOnly && clip.mediaUrl);
+        let next = current + delta;
+        if (video && current >= video.start && current < video.start + video.duration && videoRef.current && !videoRef.current.paused) next = video.start + videoRef.current.currentTime - (video.sourceIn || 0);
+        if (next >= totalDuration) { setPlaying(false); return totalDuration; }
+        return Math.max(0, next);
+      });
+      const time = playhead;
+      clips.filter((clip) => clip.track.startsWith("A") && clip.mediaUrl && !clip.aiGenerated).forEach((clip) => {
+        const audio = audioRefs.current.get(clip.id); if (!audio) return;
+        const inside = time >= clip.start && time < clip.start + clip.duration;
+        audio.volume = Math.max(0, Math.min(1, Number(clip.gain ?? 1))); audio.muted = Boolean(clip.muted);
+        if (inside) {
+          const wanted = (clip.sourceIn || 0) + time - clip.start;
+          if (Math.abs(audio.currentTime - wanted) > 0.3) { try { audio.currentTime = wanted; } catch {} }
+          if (audio.paused) audio.play().catch(() => setNotice("Could not play audio clip: " + clip.name));
+        } else if (!audio.paused) audio.pause();
+      });
+      const video = clips.find((clip) => clip.id === selected && clip.track.startsWith("V") && !clip.audioOnly && clip.mediaUrl);
+      if (video && videoRef.current) {
+        if (time >= video.start && time < video.start + video.duration) {
+          const wanted = (video.sourceIn || 0) + time - video.start;
+          if (Math.abs(videoRef.current.currentTime - wanted) > 0.35) videoRef.current.currentTime = wanted;
+          if (videoRef.current.paused) videoRef.current.play().catch(() => {});
+        } else videoRef.current.pause();
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [playing, clips, selected, playhead, totalDuration]);
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -320,7 +336,7 @@ function App() {
         <aside className="sidebar">
           <button className="nav-item active"><FolderOpen size={17} /> Media</button>
           <button className="nav-item" onClick={() => setNotice("Effects panel will be added after core timeline editing")}><MonitorPlay size={17} /> Effects</button>
-          <div className="side-section"><div className="section-label">PROJECT MEDIA</div>{mediaFiles.map((item, index) => <button className="media-card imported-media" key={item.url + index} onClick={() => { const clip = clips.find((c) => c.mediaUrl === item.url); if (clip) { setSelected(clip.id); setPlayhead(clip.start); } }}><div className="media-thumb"><Film size={22} /></div><div><strong>{item.name}</strong><small>{item.fileName}</small></div></button>)}<button className="import-button" onClick={importDesktopMedia}><Plus size={15} /> Import video</button><input ref={fileInputRef} type="file" accept="video/*,.mp4,.mov,.webm,.mkv" multiple hidden onChange={importMedia} />
+          <div className="side-section"><div className="section-label">PROJECT MEDIA</div>{mediaFiles.map((item, index) => <button className="media-card imported-media" key={item.url + index} onClick={() => { const clip = clips.find((c) => c.mediaUrl === item.url); if (clip) { setSelected(clip.id); setPlayhead(clip.start); } }}><div className="media-thumb"><Film size={22} /></div><div><strong>{item.name}</strong><small>{item.fileName}</small></div></button>)}<button className="import-button" onClick={importDesktopMedia}><Plus size={15} /> Import media</button><input ref={fileInputRef} type="file" accept="video/*,audio/*,.mp4,.mov,.webm,.mkv,.wav,.mp3,.m4a,.flac,.aac,.ogg" multiple hidden onChange={importMedia} />
           <div className="ai-options">
             <div className="section-label">LOCAL AI ANALYZERS</div>
             {[
@@ -342,7 +358,7 @@ function App() {
           <div className="upper-workspace">
             <section className="preview-panel">
               <div className="panel-heading"><span>PREVIEW</span><span className="muted">Program monitor</span></div>
-              <div className="preview-screen">
+              <div className="preview-screen">\n                {clips.filter((clip) => clip.track.startsWith("A") && clip.mediaUrl && !clip.aiGenerated).map((clip) => <audio key={clip.id} ref={(element) => { if (element) audioRefs.current.set(clip.id, element); else audioRefs.current.delete(clip.id); }} src={clip.mediaUrl} preload="auto" />)}
                 {selectedClip?.mediaUrl && !selectedClip.audioOnly ? (
                   <video
                     key={selectedClip.id}
@@ -372,7 +388,7 @@ function App() {
                   </>
                 )}
               </div>
-              <div className="transport"><span className="timecode">{formatTime(playhead)} <span>/</span> {formatTime(totalDuration)}</span><div className="transport-controls"><button title="Previous second" onClick={() => { const nextTime = Math.max(0, playhead - 1); setPlayhead(nextTime); if (selectedClip?.mediaUrl && videoRef.current) videoRef.current.currentTime = Math.max(0, (selectedClip.sourceIn || 0) + nextTime - selectedClip.start); }}><ChevronLeft size={18} /></button><button className="play-button" onClick={() => { if (selectedClip?.mediaUrl && videoRef.current) { if (videoRef.current.paused) { videoRef.current.play().catch(() => setNotice("Playback failed. Try an MP4 encoded with H.264 video and AAC audio.")); } else { videoRef.current.pause(); } } else { setNotice("Select an imported video clip to play it"); } }} aria-label={playing ? "Pause" : "Play"}>{playing ? <Pause size={18} /> : <Play size={18} fill="currentColor" />}</button><button title="Next second" onClick={() => { const nextTime = Math.min(totalDuration, playhead + 1); setPlayhead(nextTime); if (selectedClip?.mediaUrl && videoRef.current) videoRef.current.currentTime = Math.max(0, (selectedClip.sourceIn || 0) + nextTime - selectedClip.start); }}><ChevronRight size={18} /></button></div><span className="preview-quality">FIT · 100%</span></div>
+              <div className="transport"><span className="timecode">{formatTime(playhead)} <span>/</span> {formatTime(totalDuration)}</span><div className="transport-controls"><button title="Previous second" onClick={() => setPlayhead(Math.max(0, playhead - 1))}><ChevronLeft size={18} /></button><button className="play-button" onClick={() => setPlaying((value) => !value)} aria-label={playing ? "Pause" : "Play"}>{playing ? <Pause size={18} /> : <Play size={18} fill="currentColor" />}</button><button title="Next second" onClick={() => setPlayhead(Math.min(totalDuration, playhead + 1))}><ChevronRight size={18} /></button></div><span className="preview-quality">FIT · 100%</span></div>
             </section>
 
             <section className="inspector-panel">
