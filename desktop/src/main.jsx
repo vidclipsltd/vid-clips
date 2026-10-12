@@ -310,7 +310,7 @@ function App() {
       setProjectName(project.projectName || "Untitled project");
       setPlayhead(Number(project.playhead) || 0);
       setSelected(restored[0]?.id ?? null);
-      setMediaFiles(restored.filter((clip) => clip.mediaPath && !clip.audioOnly).map((clip) => ({ ...clip, url: clip.mediaUrl, name: clip.name })));
+      setMediaFiles(restored.filter((clip) => clip.mediaPath && !clip.linkedVideoId).map((clip) => ({ ...clip, url: clip.mediaUrl, name: clip.name })));
       nextClipIdRef.current = Math.max(1, ...restored.map((clip) => Number(clip.id) + 1 || 1));
       setNotice("Project opened. If a source file moved, re-import that video.");
     } catch (error) { setNotice("Could not open project: " + error.message); }
