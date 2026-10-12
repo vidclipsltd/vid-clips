@@ -38,7 +38,8 @@ function App() {
   }, []);
 
   const selectedClip = clips.find((clip) => clip.id === selected);
-  const totalDuration = Math.max(20, ...clips.map((clip) => clip.start + clip.duration));
+  const playbackEnd = Math.max(0, ...clips.filter((clip) => !clip.aiGenerated).map((clip) => clip.start + clip.duration));
+  const totalDuration = Math.max(20, playbackEnd);
   const pixelsPerSecond = 52 * zoom;
   const ticks = useMemo(() => Array.from({ length: Math.ceil(totalDuration / 2) + 1 }, (_, i) => i * 2), [totalDuration]);
 
@@ -333,7 +334,7 @@ function App() {
         const video = clips.find((clip) => clip.id === selected && clip.track.startsWith("V") && !clip.audioOnly && clip.mediaUrl);
         let next = current + delta;
         if (video && current >= video.start && current < video.start + video.duration && videoRef.current && !videoRef.current.paused) next = video.start + videoRef.current.currentTime - (video.sourceIn || 0);
-        if (next >= totalDuration) { setPlaying(false); return totalDuration; }
+        if (next >= playbackEnd) { setPlaying(false); return playbackEnd; }
         return Math.max(0, next);
       });
       const time = playhead;
@@ -359,7 +360,7 @@ function App() {
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [playing, clips, selected, playhead, totalDuration]);
+  }, [playing, clips, selected, playhead, playbackEnd]);
 
   return (
     <div className="app-shell">
