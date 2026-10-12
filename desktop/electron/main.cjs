@@ -11,7 +11,7 @@ protocol.registerSchemesAsPrivileged([{ scheme: "vidclips-media", privileges: { 
 const mediaPaths = new Map();
 function registerMediaPath(filePath) { const id = randomUUID(); mediaPaths.set(id, filePath); return "vidclips-media://asset/" + id; }
 
-const videoFilters = [{ name: "Video files", extensions: ["mp4", "m4v", "mov", "webm", "mkv", "avi", "ogv", "mpeg", "mpg"] }, { name: "All files", extensions: ["*"] }];
+const videoFilters = [{ name: "Media files", extensions: ["mp4", "m4v", "mov", "webm", "mkv", "avi", "ogv", "mpeg", "mpg", "wav", "mp3", "m4a", "aac", "flac", "ogg", "opus", "wma"] }, { name: "Video files", extensions: ["mp4", "m4v", "mov", "webm", "mkv", "avi", "ogv", "mpeg", "mpg"] }, { name: "Audio files", extensions: ["wav", "mp3", "m4a", "aac", "flac", "ogg", "opus", "wma"] }, { name: "All files", extensions: ["*"] }];
 
 
 const { spawn } = require("node:child_process");
@@ -176,10 +176,53 @@ ipcMain.handle("vidclips:analyze-video", async (event, filePath, options = {}) =
   });
 });
 
+ipcMain.handle("vidclips:analyze-audio", async (event, filePath) => {
+  if (!filePath || typeof filePath !== "string") throw new Error("Select a local audio or video file first.");
+  const stat = await fs.stat(filePath).catch(() => null);
+  if (!stat?.isFile()) throw new Error("The selected media file could not be found.");
+  const repoRoot = app.isPackaged ? path.join(process.resourcesPath, "vidclips-ai") : path.resolve(__dirname, "../..");
+  const script = path.join(repoRoot, "scripts", "desktop_analyze_audio.py");
+  if (!await fs.stat(script).then((info) => info.isFile()).catch(() => false)) throw new Error("The local Audio Analyser script is missing.");
+  const pythonCandidates = process.platform === "win32"
+    ? [process.env.VIDCLIPS_PYTHON, ...(!app.isPackaged ? [path.join(repoRoot, ".venv", "Scripts", "python.exe")] : []), "python", "py"]
+    : [process.env.VIDCLIPS_PYTHON, ...(!app.isPackaged ? [path.join(repoRoot, ".venv", "bin", "python")] : []), "python3", "python"];
+  let python = null;
+  for (const candidate of pythonCandidates) {
+    if (!candidate) continue;
+    if (!candidate.includes(path.sep) && !candidate.includes("/")) { python = candidate; break; }
+    if (await fs.stat(candidate).then((info) => info.isFile()).catch(() => false)) { python = candidate; break; }
+  }
+  if (!python) throw new Error("Python 3.11+ was not found. Install the local VidClips AI requirements.");
+  const args = python === "py" ? ["-3", script, "--media", filePath] : [script, "--media", filePath];
+  return new Promise((resolve, reject) => {
+    const child = spawn(python, args, { cwd: repoRoot, windowsHide: true, env: {
+      ...process.env, PYTHONUNBUFFERED: "1", VIDCLIPS_DEVICE: "cpu", PYTHONPATH: repoRoot,
+      VIDCLIPS_OUTPUTS_DIR: path.join(app.getPath("userData"), "outputs"),
+      VIDCLIPS_MODELS_DIR: path.join(app.getPath("userData"), "models"),
+      PATH: [path.dirname(binaryPath("ffmpeg", ffmpegPackage)), process.env.PATH || ""].join(path.delimiter)
+    }});
+    let stdout = "", stderr = "";
+    child.stdout.on("data", (chunk) => {
+      const value = chunk.toString(); stdout = (stdout + value).slice(-2_000_000);
+      for (const line of value.split(/\r?\n/)) if (line.trim()) event.sender.send("vidclips:analysis-progress", line.trim());
+    });
+    child.stderr.on("data", (chunk) => { stderr = (stderr + chunk.toString()).slice(-100_000); });
+    child.on("error", (error) => reject(new Error("Could not start local Audio Analyser: " + error.message)));
+    child.on("close", (code) => {
+      const line = stdout.split(/\r?\n/).reverse().find((value) => value.startsWith("VIDCLIPS_AUDIO_RESULT:"));
+      if (line) {
+        try { const result = JSON.parse(line.slice("VIDCLIPS_AUDIO_RESULT:".length)); if (result.ok) return resolve(result); return reject(new Error(result.error || "Audio analysis failed.")); }
+        catch (error) { return reject(new Error("Could not read audio analysis result: " + error.message)); }
+      }
+      reject(new Error((stderr || stdout || "Audio analysis exited with code " + code).slice(-2200)));
+    });
+  });
+});
+
 ipcMain.handle("vidclips:open-media", async () => {
   const result = await dialog.showOpenDialog({ properties: ["openFile", "multiSelections"], filters: videoFilters });
   if (result.canceled) return [];
-  return result.filePaths.map((filePath) => ({ path: filePath, name: path.basename(filePath), url: registerMediaPath(filePath) }));
+  return result.filePaths.map((filePath) => ({ path: filePath, name: path.basename(filePath), kind: /\.(wav|mp3|m4a|aac|flac|ogg|opus|wma)$/i.test(filePath) ? "audio" : "video", url: registerMediaPath(filePath) }));
 });
 
 ipcMain.handle("vidclips:media-url", async (_event, filePath) => registerMediaPath(filePath));
