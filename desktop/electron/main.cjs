@@ -101,7 +101,10 @@ ipcMain.handle("vidclips:export-mp4", async (_event, project) => {
     const brightness = Math.max(0, Math.min(2, Number(clip.brightness ?? 1))) - 1;
     const contrast = Math.max(0, Math.min(2, Number(clip.contrast ?? 1)));
     const saturation = Math.max(0, Math.min(2, Number(clip.saturation ?? 1)));
-    filters.push("[" + input + ":v:0]trim=start=" + sourceIn + ":duration=" + duration + ",setpts=PTS-STARTPTS,eq=brightness=" + brightness + ":contrast=" + contrast + ":saturation=" + saturation + ",scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,format=yuv420p[vclip" + i + "]");
+    const hue = Math.max(-180, Math.min(180, Number(clip.hue ?? 0)));
+    const blur = Math.max(0, Math.min(10, Number(clip.blur ?? 0)));
+    const colorFilters = "eq=brightness=" + brightness + ":contrast=" + contrast + ":saturation=" + saturation + ",hue=h=" + hue + ",gblur=sigma=" + blur;
+    filters.push("[" + input + ":v:0]trim=start=" + sourceIn + ":duration=" + duration + ",setpts=PTS-STARTPTS," + colorFilters + ",scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,format=yuv420p[vclip" + i + "]");
     videoSegments.push("[vclip" + i + "]");
     cursor = start + duration;
   }
