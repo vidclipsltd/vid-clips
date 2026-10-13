@@ -10,6 +10,9 @@ const initialClips = [];
 
 function App() {
   const [clips, setClips] = useState(initialClips);
+  const [isSignedIn, setIsSignedIn] = useState(() => window.localStorage.getItem("vidclips:first-run-complete") === "true");
+  const [loginName, setLoginName] = useState(() => window.localStorage.getItem("vidclips:profile-name") || "");
+  const [loginEmail, setLoginEmail] = useState(() => window.localStorage.getItem("vidclips:profile-email") || "");
   const [selected, setSelected] = useState(null);
   const [playhead, setPlayhead] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -25,6 +28,8 @@ function App() {
   const [mediaFiles, setMediaFiles] = useState([]);
   const fileInputRef = useRef(null);
   const videoRef = useRef(null);
+  const playheadRef = useRef(playhead);
+  playheadRef.current = playhead;
   const audioRefs = useRef(new Map());
   const [audioAnalyzing, setAudioAnalyzing] = useState(false);
   const nextClipIdRef = useRef(1);
@@ -38,6 +43,9 @@ function App() {
   }, []);
 
   const selectedClip = clips.find((clip) => clip.id === selected);
+  const previewClip = selectedClip && selectedClip.track.startsWith("V") && !selectedClip.audioOnly
+    ? selectedClip
+    : clips.find((clip) => clip.track.startsWith("V") && !clip.audioOnly && clip.mediaUrl && playhead >= clip.start && playhead < clip.start + clip.duration);
   const playbackEnd = Math.max(0, ...clips.filter((clip) => !clip.aiGenerated).map((clip) => clip.start + clip.duration));
   const totalDuration = Math.max(20, playbackEnd);
   const pixelsPerSecond = 52 * zoom;
@@ -326,41 +334,85 @@ function App() {
   }
 
   useEffect(() => {
-    if (!playing) { audioRefs.current.forEach((audio) => audio.pause()); if (videoRef.current) videoRef.current.pause(); return undefined; }
-    let frame, last = performance.now();
+    if (!playing) {
+      audioRefs.current.forEach((audio) => audio.pause());
+      if (videoRef.current) videoRef.current.pause();
+      return undefined;
+    }
+    let frame;
+    let last = performance.now();
     const tick = (now) => {
-      const delta = Math.min(0.1, Math.max(0, (now - last) / 1000)); last = now;
-      setPlayhead((current) => {
-        const video = clips.find((clip) => clip.id === selected && clip.track.startsWith("V") && !clip.audioOnly && clip.mediaUrl);
-        let next = current + delta;
-        if (video && current >= video.start && current < video.start + video.duration && videoRef.current && !videoRef.current.paused) next = video.start + videoRef.current.currentTime - (video.sourceIn || 0);
-        if (next >= playbackEnd) { setPlaying(false); return playbackEnd; }
-        return Math.max(0, next);
-      });
-      const time = playhead;
-      clips.filter((clip) => clip.track.startsWith("A") && clip.mediaUrl && !clip.aiGenerated).forEach((clip) => {
-        const audio = audioRefs.current.get(clip.id); if (!audio) return;
-        const inside = time >= clip.start && time < clip.start + clip.duration;
-        audio.volume = Math.max(0, Math.min(1, Number(clip.gain ?? 1))); audio.muted = Boolean(clip.muted);
-        if (inside) {
-          const wanted = (clip.sourceIn || 0) + time - clip.start;
-          if (Math.abs(audio.currentTime - wanted) > 0.3) { try { audio.currentTime = wanted; } catch {} }
-          if (audio.paused) audio.play().catch(() => setNotice("Could not play audio clip: " + clip.name));
-        } else if (!audio.paused) audio.pause();
-      });
-      const video = clips.find((clip) => clip.id === selected && clip.track.startsWith("V") && !clip.audioOnly && clip.mediaUrl);
+      const delta = Math.min(0.08, Math.max(0, (now - last) / 1000));
+      last = now;
+      const time = playheadRef.current;
+      const video = clips.find((clip) => clip.track.startsWith("V") && !clip.audioOnly && clip.mediaUrl && time >= clip.start && time < clip.start + clip.duration);
+      let next = time + delta;
       if (video && videoRef.current) {
-        if (time >= video.start && time < video.start + video.duration) {
-          const wanted = (video.sourceIn || 0) + time - video.start;
-          if (Math.abs(videoRef.current.currentTime - wanted) > 0.35) videoRef.current.currentTime = wanted;
-          if (videoRef.current.paused) videoRef.current.play().catch(() => {});
-        } else videoRef.current.pause();
+        if (selected !== video.id) setSelected(video.id);
+        const wanted = (video.sourceIn || 0) + time - video.start;
+        if (Math.abs(videoRef.current.currentTime - wanted) > 0.45) {
+          try { videoRef.current.currentTime = wanted; } catch {}
+        }
+        if (videoRef.current.paused) videoRef.current.play().catch(() => {});
+        if (!videoRef.current.paused) next = video.start + videoRef.current.currentTime - (video.sourceIn || 0);
+      } else if (videoRef.current && !videoRef.current.paused) {
+        videoRef.current.pause();
       }
+      clips.filter((clip) => clip.track.startsWith("A") && clip.mediaUrl && !clip.aiGenerated).forEach((clip) => {
+        const audio = audioRefs.current.get(clip.id);
+        if (!audio) return;
+        const inside = next >= clip.start && next < clip.start + clip.duration;
+        audio.volume = Math.max(0, Math.min(1, Number(clip.gain ?? 1)));
+        audio.muted = Boolean(clip.muted);
+        if (inside) {
+          const wanted = (clip.sourceIn || 0) + next - clip.start;
+          if (Math.abs(audio.currentTime - wanted) > 0.4) {
+            try { audio.currentTime = wanted; } catch {}
+          }
+          if (audio.paused) audio.play().catch(() => setNotice("Could not play audio clip: " + clip.name));
+        } else if (!audio.paused) {
+          audio.pause();
+        }
+      });
+      if (next >= playbackEnd) {
+        playheadRef.current = playbackEnd;
+        setPlayhead(playbackEnd);
+        setPlaying(false);
+        return;
+      }
+      next = Math.max(0, next);
+      playheadRef.current = next;
+      setPlayhead(next);
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [playing, clips, selected, playhead, playbackEnd]);
+  }, [playing, clips, selected, playbackEnd]);
+
+  function completeFirstRun(event) {
+    event.preventDefault();
+    const name = loginName.trim();
+    if (!name) return;
+    window.localStorage.setItem("vidclips:first-run-complete", "true");
+    window.localStorage.setItem("vidclips:profile-name", name);
+    window.localStorage.setItem("vidclips:profile-email", loginEmail.trim());
+    setLoginName(name);
+    setIsSignedIn(true);
+    setNotice("Welcome to VidClips, " + name + ".");
+  }
+
+  if (!isSignedIn) {
+    return <div className="login-screen"><form className="login-card" onSubmit={completeFirstRun}>
+      <div className="brand login-brand"><div className="brand-mark"><Film size={21} /></div><span>VidClips</span></div>
+      <div className="login-eyebrow">YOUR CREATIVE WORKSPACE</div>
+      <h1>Welcome to VidClips</h1>
+      <p>Set up your local profile to get started. This screen appears only on the first launch on this device.</p>
+      <label>Your name<input autoFocus required value={loginName} onChange={(event) => setLoginName(event.target.value)} placeholder="Enter your name" /></label>
+      <label>Email (optional)<input type="email" value={loginEmail} onChange={(event) => setLoginEmail(event.target.value)} placeholder="you@example.com" /></label>
+      <button className="button primary login-submit" type="submit">Continue to VidClips <ChevronRight size={17} /></button>
+      <small>Profile details stay on this device. Online account authentication is not configured.</small>
+    </form></div>;
+  }
 
   return (
     <div className="app-shell">
@@ -397,24 +449,25 @@ function App() {
             <section className="preview-panel">
               <div className="panel-heading"><span>PREVIEW</span><span className="muted">Program monitor</span></div>
               <div className="preview-screen">\n                {clips.filter((clip) => clip.track.startsWith("A") && clip.mediaUrl && !clip.aiGenerated).map((clip) => <audio key={clip.id} ref={(element) => { if (element) audioRefs.current.set(clip.id, element); else audioRefs.current.delete(clip.id); }} src={clip.mediaUrl} preload="auto" />)}
-                {selectedClip?.mediaUrl && !selectedClip.audioOnly ? (
+                {previewClip?.mediaUrl ? (
                   <video
-                    key={selectedClip.id}
+                    key={previewClip.id}
                     ref={videoRef}
                     className="video-preview"
-                    style={{ filter: "brightness(" + (selectedClip.brightness ?? 1) + ") contrast(" + (selectedClip.contrast ?? 1) + ") saturate(" + (selectedClip.saturation ?? 1) + ")" }}
-                    src={selectedClip.mediaUrl}
+                    style={{ filter: "brightness(" + (previewClip.brightness ?? 1) + ") contrast(" + (previewClip.contrast ?? 1) + ") saturate(" + (previewClip.saturation ?? 1) + ") hue-rotate(" + (previewClip.hue ?? 0) + "deg) blur(" + (previewClip.blur ?? 0) + "px)" }}
+                    src={previewClip.mediaUrl}
                     controls={false}
-                    muted={Boolean(clips.some((clip) => clip.linkedVideoId === selectedClip.id && clip.track === "A1"))}
+                    muted={Boolean(clips.some((clip) => clip.linkedVideoId === previewClip.id && clip.track === "A1"))}
                     preload="metadata"
                     onLoadedMetadata={(e) => {
-                      const localTime = Math.max(0, Math.min(selectedClip.duration, (selectedClip.sourceIn || 0) + playhead - selectedClip.start));
+                      const localTime = Math.max(0, Math.min(previewClip.duration, (previewClip.sourceIn || 0) + playhead - previewClip.start));
                       if (Number.isFinite(localTime)) e.currentTarget.currentTime = localTime;
                     }}
                     onPlay={() => setPlaying(true)}
                     onTimeUpdate={(e) => {
-                      const nextTime = selectedClip.start + e.currentTarget.currentTime - (selectedClip.sourceIn || 0);
-                      setPlayhead(Math.min(selectedClip.start + selectedClip.duration, nextTime));
+                      const nextTime = previewClip.start + e.currentTarget.currentTime - (previewClip.sourceIn || 0);
+                      playheadRef.current = Math.min(previewClip.start + previewClip.duration, nextTime);
+                      setPlayhead(playheadRef.current);
                     }}
                     onError={() => setNotice("This video format/codec could not be played. Try an MP4 encoded with H.264 video and AAC audio.")}
                   />
@@ -430,7 +483,7 @@ function App() {
 
             <section className="inspector-panel">
               <div className="panel-heading"><span>INSPECTOR</span><span className="muted">Clip properties</span></div>
-              {selectedClip ? <div className="inspector-content"><div className={"inspector-color " + selectedClip.color}><Film size={22} /></div><label>Clip name<input value={selectedClip.name} onChange={(e) => setClips((items) => items.map((clip) => clip.id === selected ? { ...clip, name: e.target.value } : clip))} /></label><div className="property-grid"><label>Track<select value={selectedClip.track} onChange={(e) => setClips((items) => items.map((clip) => clip.id === selected ? { ...clip, track: e.target.value } : clip))}><option value="V1">V1 · Video 1</option><option value="V2">V2 · Video 2</option><option value="A1">A1 · Audio 1</option></select></label><label>Duration (s)<input type="number" min="0.05" step="0.1" value={Number(selectedClip.duration.toFixed(2))} onChange={(e) => { const duration = Math.max(0.05, Number(e.target.value) || 0.05); setClips((items) => items.map((clip) => clip.id === selected ? { ...clip, duration, sourceOut: (clip.sourceIn || 0) + duration } : clip)); }} /></label><label>Timeline start (s)<input type="number" min="0" step="0.1" value={Number(selectedClip.start.toFixed(2))} onChange={(e) => { const start = Math.max(0, Number(e.target.value) || 0); setClips((items) => items.map((clip) => clip.id === selected ? { ...clip, start } : clip)); }} /></label><label>Source in (s)<input type="number" min="0" step="0.1" value={Number((selectedClip.sourceIn || 0).toFixed(2))} onChange={(e) => { const sourceIn = Math.max(0, Number(e.target.value) || 0); setClips((items) => items.map((clip) => clip.id === selected ? { ...clip, sourceIn, sourceOut: sourceIn + clip.duration } : clip)); }} /></label></div><div className="effect-controls">{selectedClip.track.startsWith("A") ? <><strong>Audio controls</strong><label>Volume <input type="range" min="0" max="1" step="0.05" value={selectedClip.gain ?? 1} onChange={(e) => setClips((items) => items.map((clip) => clip.id === selected ? { ...clip, gain: Number(e.target.value) } : clip))} /></label><label className="ai-option"><input type="checkbox" checked={Boolean(selectedClip.muted)} onChange={(e) => setClips((items) => items.map((clip) => clip.id === selected ? { ...clip, muted: e.target.checked } : clip))} />Mute this audio clip</label></> : <><strong>Color effects</strong><label>Brightness <input type="range" min="0" max="2" step="0.05" value={selectedClip.brightness ?? 1} onChange={(e) => setClips((items) => items.map((clip) => clip.id === selected ? { ...clip, brightness: Number(e.target.value) } : clip))} /></label><label>Contrast <input type="range" min="0" max="2" step="0.05" value={selectedClip.contrast ?? 1} onChange={(e) => setClips((items) => items.map((clip) => clip.id === selected ? { ...clip, contrast: Number(e.target.value) } : clip))} /></label><label>Saturation <input type="range" min="0" max="2" step="0.05" value={selectedClip.saturation ?? 1} onChange={(e) => setClips((items) => items.map((clip) => clip.id === selected ? { ...clip, saturation: Number(e.target.value) } : clip))} /></label></>}</div><div className="inspector-hint">{selectedClip.fileName ? "Imported media: " + selectedClip.fileName : "Select a clip on the timeline to edit its properties."}</div></div> : <div className="empty-inspector">Select a clip to inspect it.</div>}
+              {selectedClip ? <div className="inspector-content"><div className={"inspector-color " + selectedClip.color}><Film size={22} /></div><label>Clip name<input value={selectedClip.name} onChange={(e) => setClips((items) => items.map((clip) => clip.id === selected ? { ...clip, name: e.target.value } : clip))} /></label><div className="property-grid"><label>Track<select value={selectedClip.track} onChange={(e) => setClips((items) => items.map((clip) => clip.id === selected ? { ...clip, track: e.target.value } : clip))}><option value="V1">V1 · Video 1</option><option value="V2">V2 · Video 2</option><option value="A1">A1 · Audio 1</option></select></label><label>Duration (s)<input type="number" min="0.05" step="0.1" value={Number(selectedClip.duration.toFixed(2))} onChange={(e) => { const duration = Math.max(0.05, Number(e.target.value) || 0.05); setClips((items) => items.map((clip) => clip.id === selected ? { ...clip, duration, sourceOut: (clip.sourceIn || 0) + duration } : clip)); }} /></label><label>Timeline start (s)<input type="number" min="0" step="0.1" value={Number(selectedClip.start.toFixed(2))} onChange={(e) => { const start = Math.max(0, Number(e.target.value) || 0); setClips((items) => items.map((clip) => clip.id === selected ? { ...clip, start } : clip)); }} /></label><label>Source in (s)<input type="number" min="0" step="0.1" value={Number((selectedClip.sourceIn || 0).toFixed(2))} onChange={(e) => { const sourceIn = Math.max(0, Number(e.target.value) || 0); setClips((items) => items.map((clip) => clip.id === selected ? { ...clip, sourceIn, sourceOut: sourceIn + clip.duration } : clip)); }} /></label></div><div className="effect-controls">{selectedClip.track.startsWith("A") ? <><strong>Audio controls</strong><label>Volume <input type="range" min="0" max="1" step="0.05" value={selectedClip.gain ?? 1} onChange={(e) => setClips((items) => items.map((clip) => clip.id === selected ? { ...clip, gain: Number(e.target.value) } : clip))} /></label><label className="ai-option"><input type="checkbox" checked={Boolean(selectedClip.muted)} onChange={(e) => setClips((items) => items.map((clip) => clip.id === selected ? { ...clip, muted: e.target.checked } : clip))} />Mute this audio clip</label></> : <><strong>Color effects</strong><label>Brightness <input type="range" min="0" max="2" step="0.05" value={selectedClip.brightness ?? 1} onChange={(e) => setClips((items) => items.map((clip) => clip.id === selected ? { ...clip, brightness: Number(e.target.value) } : clip))} /></label><label>Contrast <input type="range" min="0" max="2" step="0.05" value={selectedClip.contrast ?? 1} onChange={(e) => setClips((items) => items.map((clip) => clip.id === selected ? { ...clip, contrast: Number(e.target.value) } : clip))} /></label><label>Saturation <input type="range" min="0" max="2" step="0.05" value={selectedClip.saturation ?? 1} onChange={(e) => setClips((items) => items.map((clip) => clip.id === selected ? { ...clip, saturation: Number(e.target.value) } : clip))} /></label><label>Hue <input type="range" min="-180" max="180" step="5" value={selectedClip.hue ?? 0} onChange={(e) => setClips((items) => items.map((clip) => clip.id === selected ? { ...clip, hue: Number(e.target.value) } : clip))} /></label><label>Blur <input type="range" min="0" max="10" step="0.5" value={selectedClip.blur ?? 0} onChange={(e) => setClips((items) => items.map((clip) => clip.id === selected ? { ...clip, blur: Number(e.target.value) } : clip))} /></label></>}</div><div className="inspector-hint">{selectedClip.fileName ? "Imported media: " + selectedClip.fileName : "Select a clip on the timeline to edit its properties."}</div></div> : <div className="empty-inspector">Select a clip to inspect it.</div>}
             </section>
           </div>
 
