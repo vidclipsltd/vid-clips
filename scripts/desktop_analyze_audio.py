@@ -38,7 +38,8 @@ def main() -> int:
     output_root = Path(os.environ.get("VIDCLIPS_OUTPUTS_DIR", ROOT / "outputs")) / "audio"
     output_root.mkdir(parents=True, exist_ok=True)
     safe_stem = "".join(c if c.isalnum() or c in "-_." else "_" for c in source.stem)[:80] or "audio"
-    wav_path = output_root / f"{safe_stem}_analysis.wav"
+    master_path = output_root / f"{safe_stem}_source_quality.wav"
+    analysis_path = output_root / f"{safe_stem}_analysis.wav"
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         emit({"ok": False, "error": "FFmpeg is unavailable. Reinstall the VidClips desktop dependencies."})
@@ -46,17 +47,22 @@ def main() -> int:
 
     try:
         print("Extracting local audio…", flush=True)
-        command = [ffmpeg, "-y", "-v", "error", "-i", str(source), "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", str(wav_path)]
+        command = [ffmpeg, "-y", "-v", "error", "-i", str(source), "-vn", "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2", str(master_path)]
         result = subprocess.run(command, capture_output=True, text=True, timeout=3600)
-        if result.returncode or not wav_path.is_file():
+        if result.returncode or not master_path.is_file():
             emit({"ok": False, "error": "Could not extract an audio stream. " + (result.stderr[-700:] if result.stderr else "This file may not contain audio.")})
+            return 1
+        analysis_extract = [ffmpeg, "-y", "-v", "error", "-i", str(master_path), "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", str(analysis_path)]
+        analysis_result = subprocess.run(analysis_extract, capture_output=True, text=True, timeout=3600)
+        if analysis_result.returncode or not analysis_path.is_file():
+            emit({"ok": False, "error": "Could not prepare audio for analysis. " + (analysis_result.stderr[-700:] if analysis_result.stderr else "")})
             return 1
 
         import librosa
         import numpy as np
 
         print("Analyzing waveform, silence and beats…", flush=True)
-        signal, sample_rate = librosa.load(str(wav_path), sr=16000, mono=True)
+        signal, sample_rate = librosa.load(str(analysis_path), sr=16000, mono=True)
         if not len(signal):
             emit({"ok": False, "error": "No audio samples were found."})
             return 1
@@ -85,7 +91,7 @@ def main() -> int:
             print("Loading local Whisper speech model (first run may download it)…", flush=True)
             import whisper
             model = whisper.load_model("base", device="cpu")
-            transcription = model.transcribe(str(wav_path), verbose=False, word_timestamps=True, fp16=False)
+            transcription = model.transcribe(str(analysis_path), verbose=False, word_timestamps=True, fp16=False)
             segments = []
             for seg in transcription.get("segments", []):
                 words = []
@@ -125,11 +131,11 @@ def main() -> int:
             print("Separating audio into local stems (CPU; first run downloads model weights)…", flush=True)
             stem_root = output_root / "separated"
             sep = subprocess.run(
-                [sys.executable, "-m", "demucs", "-n", "htdemucs", "--device", "cpu", "-o", str(stem_root), str(wav_path)],
+                [sys.executable, "-m", "demucs", "-n", "htdemucs", "--device", "cpu", "-o", str(stem_root), str(master_path)],
                 capture_output=True, text=True, timeout=10800,
             )
             if sep.returncode == 0:
-                model_dir = stem_root / "htdemucs" / wav_path.stem
+                model_dir = stem_root / "htdemucs" / master_path.stem
                 stems = []
                 for stem_name in ("vocals", "drums", "bass", "other"):
                     stem_path = model_dir / (stem_name + ".wav")
@@ -146,7 +152,8 @@ def main() -> int:
         output = {
             "has_audio": True,
             "source_path": str(source),
-            "audio_path": str(wav_path),
+            "audio_path": str(master_path),
+            "analysis_audio_path": str(analysis_path),
             "duration_sec": round(len(signal) / sample_rate, 3),
             "transcript": transcript,
             "silence_segments": silence_segments,
