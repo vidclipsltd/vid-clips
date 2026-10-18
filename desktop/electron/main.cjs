@@ -122,7 +122,7 @@ ipcMain.handle("vidclips:analyze-video", async (event, filePath, options = {}) =
     : path.resolve(__dirname, "../..");
   const script = path.join(repoRoot, "scripts", "desktop_analyze_video.py");
   const pythonCandidates = process.platform === "win32"
-    ? [process.env.VIDCLIPS_PYTHON, ...(!app.isPackaged ? [path.join(repoRoot, ".venv", "Scripts", "python.exe")] : []), "python", "py"]
+    ? [process.env.VIDCLIPS_PYTHON, ...(!app.isPackaged ? [path.join(repoRoot, ".venv", "Scripts", "python.exe")] : []), "py", "python"]
     : [process.env.VIDCLIPS_PYTHON, ...(!app.isPackaged ? [path.join(repoRoot, ".venv", "bin", "python")] : []), "python3", "python"];
   let python = null;
   for (const candidate of pythonCandidates) {
@@ -139,7 +139,7 @@ ipcMain.handle("vidclips:analyze-video", async (event, filePath, options = {}) =
     ? options.analyzers.join(",")
     : "scene_detection,camera_motion,color_grading";
   const args = python === "py"
-    ? ["-3", script, "--video", filePath, "--device", "cpu", "--analyzers", analyzerNames]
+    ? ["-3.11", script, "--video", filePath, "--device", "cpu", "--analyzers", analyzerNames]
     : [script, "--video", filePath, "--device", "cpu", "--analyzers", analyzerNames];
 
   return new Promise((resolve, reject) => {
@@ -188,7 +188,7 @@ ipcMain.handle("vidclips:analyze-audio", async (event, filePath) => {
     throw new Error("The local audio analyzer script is missing from this installation.");
   }
   const pythonCandidates = process.platform === "win32"
-    ? [process.env.VIDCLIPS_PYTHON, ...(!app.isPackaged ? [path.join(repoRoot, ".venv", "Scripts", "python.exe")] : []), "python", "py"]
+    ? [process.env.VIDCLIPS_PYTHON, ...(!app.isPackaged ? [path.join(repoRoot, ".venv", "Scripts", "python.exe")] : []), "py", "python"]
     : [process.env.VIDCLIPS_PYTHON, ...(!app.isPackaged ? [path.join(repoRoot, ".venv", "bin", "python")] : []), "python3", "python"];
   let python = null;
   for (const candidate of pythonCandidates) {
@@ -197,7 +197,7 @@ ipcMain.handle("vidclips:analyze-audio", async (event, filePath) => {
     if (await fs.stat(candidate).then((info) => info.isFile()).catch(() => false)) { python = candidate; break; }
   }
   if (!python) throw new Error("Python 3.11+ was not found. Install Python and the repository requirements.");
-  const args = python === "py" ? ["-3", script, "--media", filePath] : [script, "--media", filePath];
+  const args = python === "py" ? ["-3.11", script, "--media", filePath] : [script, "--media", filePath];
   return new Promise((resolve, reject) => {
     const child = spawn(python, args, {
       cwd: repoRoot, windowsHide: true,
