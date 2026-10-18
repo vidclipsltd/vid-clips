@@ -133,7 +133,7 @@ ipcMain.handle("vidclips:export-mp4", async (_event, project) => {
       const sourceIn = Math.max(0, Number(clip.sourceIn) || 0);
       const duration = Math.max(0.05, Number(clip.duration));
       const startMs = Math.round(Math.max(0, Number(clip.start) || 0) * 1000);
-      const volume = Math.max(0, Math.min(2, Number(clip.volume ?? 1)));
+      const volume = clip.muted ? 0 : Math.max(0, Math.min(2, Number(clip.volume ?? 1)));
       const label = "timelineAudio" + i;
       filters.push("[" + inputIndex + ":a:0]atrim=start=" + sourceIn + ":duration=" + duration + ",asetpts=PTS-STARTPTS,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,volume=" + volume + ",adelay=" + startMs + "|" + startMs + "[" + label + "]");
       mixInputs.push("[" + label + "]");
