@@ -9,7 +9,6 @@
     "build": "vite build",
     "start": "electron .",
     "dist:win": "npm run build && electron-builder --win nsis",
-    "predev": "node scripts/generate-icon.cjs",
     "prebuild": "node scripts/generate-icon.cjs"
   },
   "dependencies": {
