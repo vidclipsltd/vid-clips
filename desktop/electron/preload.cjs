@@ -6,7 +6,13 @@ contextBridge.exposeInMainWorld("vidclips", {
   openProject: () => ipcRenderer.invoke("vidclips:open-project"),
   mediaUrlFromPath: (filePath) => ipcRenderer.invoke("vidclips:media-url", filePath),
   analyzeVideo: (filePath, options) => ipcRenderer.invoke("vidclips:analyze-video", filePath, options),
+  analyzeAudio: (filePath) => ipcRenderer.invoke("vidclips:analyze-audio", filePath),
   getAudioWaveform: (filePath) => ipcRenderer.invoke("vidclips:audio-waveform", filePath),
+  onAudioProgress: (callback) => {
+    const listener = (_event, message) => callback(message);
+    ipcRenderer.on("vidclips:audio-progress", listener);
+    return () => ipcRenderer.removeListener("vidclips:audio-progress", listener);
+  },
   onAnalysisProgress: (callback) => {
     const listener = (_event, message) => callback(message);
     ipcRenderer.on("vidclips:analysis-progress", listener);
