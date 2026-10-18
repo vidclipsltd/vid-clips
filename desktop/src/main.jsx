@@ -392,7 +392,9 @@ function App() {
             <section className="preview-panel">
               <div className="panel-heading"><span>PREVIEW</span><span className="muted">Program monitor</span></div>
               <div className="preview-screen">
-                {selectedClip?.mediaUrl && selectedClip.audioOnly ? (\n                  <div className="audio-preview"><AudioLines size={44} /><strong>{selectedClip.name}</strong><span>Audio source preview</span><audio key={selectedClip.id} ref={audioRef} src={selectedClip.mediaUrl} controls preload="metadata" onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} onTimeUpdate={(e) => setPlayhead(Math.min(selectedClip.start + selectedClip.duration, selectedClip.start + e.currentTarget.currentTime - (selectedClip.sourceIn || 0)))} onError={() => setNotice("This audio format could not be played by the current media engine.")} /></div>\n                ) : selectedClip?.mediaUrl ? (
+                {selectedClip?.mediaUrl && selectedClip.audioOnly ? (
+                  <div className="audio-preview"><AudioLines size={44} /><strong>{selectedClip.name}</strong><span>Audio source preview</span><audio key={selectedClip.id} ref={audioRef} src={selectedClip.mediaUrl} controls preload="metadata" onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} onTimeUpdate={(e) => setPlayhead(Math.min(selectedClip.start + selectedClip.duration, selectedClip.start + e.currentTarget.currentTime - (selectedClip.sourceIn || 0)))} onError={() => setNotice("This audio format could not be played by the current media engine.")} /></div>
+                ) : selectedClip?.mediaUrl ? (
                   <video
                     key={selectedClip.id}
                     ref={videoRef}
