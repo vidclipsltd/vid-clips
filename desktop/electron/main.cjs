@@ -176,6 +176,66 @@ ipcMain.handle("vidclips:analyze-video", async (event, filePath, options = {}) =
   });
 });
 
+ipcMain.handle("vidclips:analyze-audio", async (event, filePath) => {
+  if (!filePath || typeof filePath !== "string") throw new Error("Select a local video or audio file first.");
+  const stat = await fs.stat(filePath).catch(() => null);
+  if (!stat?.isFile()) throw new Error("The selected audio source file could not be found.");
+  const repoRoot = app.isPackaged
+    ? path.join(process.resourcesPath, "vidclips-ai")
+    : path.resolve(__dirname, "../..");
+  const script = path.join(repoRoot, "scripts", "desktop_analyze_audio.py");
+  if (!await fs.stat(script).then((info) => info.isFile()).catch(() => false)) {
+    throw new Error("The local audio analyzer script is missing from this installation.");
+  }
+  const pythonCandidates = process.platform === "win32"
+    ? [process.env.VIDCLIPS_PYTHON, ...(!app.isPackaged ? [path.join(repoRoot, ".venv", "Scripts", "python.exe")] : []), "python", "py"]
+    : [process.env.VIDCLIPS_PYTHON, ...(!app.isPackaged ? [path.join(repoRoot, ".venv", "bin", "python")] : []), "python3", "python"];
+  let python = null;
+  for (const candidate of pythonCandidates) {
+    if (!candidate) continue;
+    if (!candidate.includes(path.sep) && !candidate.includes("/")) { python = candidate; break; }
+    if (await fs.stat(candidate).then((info) => info.isFile()).catch(() => false)) { python = candidate; break; }
+  }
+  if (!python) throw new Error("Python 3.11+ was not found. Install Python and the repository requirements.");
+  const args = python === "py" ? ["-3", script, "--media", filePath] : [script, "--media", filePath];
+  return new Promise((resolve, reject) => {
+    const child = spawn(python, args, {
+      cwd: repoRoot, windowsHide: true,
+      env: {
+        ...process.env, PYTHONUNBUFFERED: "1", VIDCLIPS_DEVICE: "cpu", PYTHONPATH: repoRoot,
+        PATH: [path.dirname(binaryPath("ffmpeg", ffmpegPackage)), path.dirname(binaryPath("ffprobe", ffprobePackage.path)), process.env.PATH || ""].join(path.delimiter),
+        VIDCLIPS_OUTPUTS_DIR: path.join(app.getPath("userData"), "outputs"),
+        VIDCLIPS_MODELS_DIR: path.join(app.getPath("userData"), "models"),
+        VIDCLIPS_CHECKPOINTS_DIR: path.join(app.getPath("userData"), "checkpoints")
+      }
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      const part = chunk.toString();
+      stdout = (stdout + part).slice(-2_000_000);
+      for (const line of part.split(/\r?\n/)) if (line.trim()) event.sender.send("vidclips:audio-progress", line.trim());
+    });
+    child.stderr.on("data", (chunk) => { stderr = (stderr + chunk.toString()).slice(-100_000); });
+    child.on("error", (error) => reject(new Error("Could not start local audio analysis: " + error.message)));
+    child.on("close", (code) => {
+      const resultLine = stdout.split(/\r?\n/).reverse().find((line) => line.startsWith("VIDCLIPS_AUDIO_RESULT:"));
+      if (resultLine) {
+        try {
+          const result = JSON.parse(resultLine.slice("VIDCLIPS_AUDIO_RESULT:".length));
+          if (result.ok) return resolve(result);
+          return reject(new Error(result.error || "Local audio analysis failed."));
+        } catch (error) { return reject(new Error("Could not read the audio analysis result: " + error.message)); }
+      }
+      const diagnostic = stderr.trim() || stdout.trim() || ("Python exited with code " + code);
+      if (/No module named|ModuleNotFoundError|ImportError/i.test(diagnostic)) {
+        return reject(new Error("Local audio dependencies are missing. From the repository root run: python -m pip install -r requirements.txt. Details: " + diagnostic.slice(-1000)));
+      }
+      return reject(new Error(diagnostic.slice(-2000)));
+    });
+  });
+});
+
 ipcMain.handle("vidclips:open-media", async () => {
   const result = await dialog.showOpenDialog({ properties: ["openFile", "multiSelections"], filters: videoFilters });
   if (result.canceled) return [];
