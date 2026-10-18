@@ -75,7 +75,7 @@ ipcMain.handle("vidclips:export-mp4", async (_event, project) => {
   const clips = allClips
     .filter((clip) => clip.track === "V1" && clip.mediaPath && Number(clip.duration) > 0)
     .sort((a, b) => Number(a.start) - Number(b.start));
-  const audioClips = allClips
+  let audioClips = allClips
     .filter((clip) => clip.track === "A1" && clip.mediaPath && Number(clip.duration) > 0)
     .sort((a, b) => Number(a.start) - Number(b.start));
   if (!clips.length) throw new Error("Add at least one imported video clip to track V1 before exporting.");
@@ -83,6 +83,15 @@ ipcMain.handle("vidclips:export-mp4", async (_event, project) => {
   if (save.canceled || !save.filePath) return { canceled: true };
   const ffmpeg = binaryPath("ffmpeg", ffmpegPackage);
   const ffprobe = binaryPath("ffprobe", ffprobePackage.path);
+  const playableAudioClips = [];
+  for (const clip of audioClips) {
+    if (!await fs.stat(clip.mediaPath).then(() => true).catch(() => false)) throw new Error("Audio source file not found: " + clip.mediaPath);
+    try {
+      const probe = await runBinaryOutput(ffprobe, ["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=index", "-of", "csv=p=0", clip.mediaPath]);
+      if (probe.stdout.trim()) playableAudioClips.push(clip);
+    } catch {}
+  }
+  audioClips = playableAudioClips;
   const args = ["-y"];
   for (const clip of clips) {
     if (!await fs.stat(clip.mediaPath).then(() => true).catch(() => false)) throw new Error("Source file not found: " + clip.mediaPath);
