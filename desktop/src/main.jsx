@@ -17,6 +17,8 @@ function App() {
   const [audioAnalyzing, setAudioAnalyzing] = useState(false);
   const [audioAnalysisResults, setAudioAnalysisResults] = useState(null);
   const [audioProgress, setAudioProgress] = useState("");
+  const [showWelcome, setShowWelcome] = useState(false);
+  const [profileName, setProfileName] = useState("");
   const [exporting, setExporting] = useState(false);
   const [analysisResults, setAnalysisResults] = useState(null);
   const [analysisProgress, setAnalysisProgress] = useState("");
@@ -30,6 +32,16 @@ function App() {
   const videoRef = useRef(null);
   const audioRef = useRef(null);
   const nextClipIdRef = useRef(1);
+
+  useEffect(() => {
+    try { setShowWelcome(localStorage.getItem("vidclips-welcome-complete") !== "yes"); } catch { setShowWelcome(false); }
+  }, []);
+
+  function completeWelcome() {
+    try { localStorage.setItem("vidclips-welcome-complete", "yes"); } catch {}
+    setShowWelcome(false);
+    setNotice(profileName.trim() ? "Welcome, " + profileName.trim() + ". Your project stays on this PC." : "Welcome to VidClips. Your project stays on this PC.");
+  }
 
   useEffect(() => {
     if (!window.vidclips?.onAnalysisProgress) return undefined;
@@ -358,7 +370,7 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className="app-shell">\n      {showWelcome && <div className="welcome-backdrop"><section className="welcome-card"><div className="brand-mark"><Film size={22} /></div><h1>Welcome to VidClips</h1><p>Your local video editing workspace. Add a profile name if you like; this is a first-run welcome screen, not an online account.</p><label>Profile name <input autoFocus value={profileName} onChange={(event) => setProfileName(event.target.value)} placeholder="Your name (optional)" onKeyDown={(event) => { if (event.key === "Enter") completeWelcome(); }} /></label><button className="button primary" onClick={completeWelcome}>Open editor</button></section></div>}
       <header className="topbar">
         <div className="brand"><div className="brand-mark"><Film size={19} /></div><span>VidClips</span></div>
         <div className="project-title"><input aria-label="Project name" value={projectName} onChange={(e) => setProjectName(e.target.value)} /><span>Saved locally when exported</span></div>
@@ -393,7 +405,7 @@ function App() {
               <div className="panel-heading"><span>PREVIEW</span><span className="muted">Program monitor</span></div>
               <div className="preview-screen">
                 {selectedClip?.mediaUrl && selectedClip.audioOnly ? (
-                  <div className="audio-preview"><AudioLines size={44} /><strong>{selectedClip.name}</strong><span>Audio source preview</span><audio key={selectedClip.id} ref={audioRef} src={selectedClip.mediaUrl} controls preload="metadata" onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} onTimeUpdate={(e) => setPlayhead(Math.min(selectedClip.start + selectedClip.duration, selectedClip.start + e.currentTarget.currentTime - (selectedClip.sourceIn || 0)))} onError={() => setNotice("This audio format could not be played by the current media engine.")} /></div>
+                  <div className="audio-preview"><AudioLines size={44} /><strong>{selectedClip.name}</strong><span>Audio source preview</span><audio key={selectedClip.id} ref={audioRef} src={selectedClip.mediaUrl} controls preload="metadata" onLoadedMetadata={(e) => { const localTime = Math.max(0, Math.min(selectedClip.duration, (selectedClip.sourceIn || 0) + playhead - selectedClip.start)); if (Number.isFinite(localTime)) e.currentTarget.currentTime = localTime; }} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} onTimeUpdate={(e) => setPlayhead(Math.min(selectedClip.start + selectedClip.duration, selectedClip.start + e.currentTarget.currentTime - (selectedClip.sourceIn || 0)))} onError={() => setNotice("This audio format could not be played by the current media engine.")} /></div>
                 ) : selectedClip?.mediaUrl ? (
                   <video
                     key={selectedClip.id}
