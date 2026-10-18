@@ -322,13 +322,19 @@ function App() {
       const analysis = result?.analysis;
       if (!analysis || result?.ok !== true) throw new Error("The audio analyzer returned no analysis results.");
       const startOffset = Math.max(0, Number(selectedClip.start || 0) - Number(selectedClip.sourceIn || 0));
-      const transcriptClips = (analysis.transcript?.segments || []).map((segment, index) => ({
+      const transcriptSegments = analysis.transcript?.segments || [];
+      const transcriptClips = transcriptSegments.map((segment, index) => ({
         id: nextClipIdRef.current++, name: "Speech: " + String(segment.text || "Transcript").slice(0, 42),
         track: "A1", start: startOffset + Math.max(0, Number(segment.start_sec) || 0),
         duration: Math.max(0.12, (Number(segment.end_sec) || 0) - (Number(segment.start_sec) || 0)),
-        sourceIn: Math.max(0, Number(segment.start_sec) || 0), color: "green",
-        aiGenerated: true, aiType: "transcript", aiData: segment
+        color: "green", aiGenerated: true, aiType: "transcript", aiData: segment
       }));
+      const wordClips = transcriptSegments.flatMap((segment) => (segment.words || []).map((word) => ({
+        id: nextClipIdRef.current++, name: "Word: " + String(word.text || "").slice(0, 28),
+        track: "A1", start: startOffset + Math.max(0, Number(word.start_sec) || 0),
+        duration: Math.max(0.08, (Number(word.end_sec) || 0) - (Number(word.start_sec) || 0)),
+        color: "teal", aiGenerated: true, aiType: "transcript-word", aiData: word
+      })));
       const beatClips = (analysis.music?.beat_timestamps_sec || []).map((time, index) => ({
         id: nextClipIdRef.current++, name: "Beat " + (index + 1), track: "A1",
         start: startOffset + Math.max(0, Number(time) || 0), duration: 0.12,
@@ -340,7 +346,22 @@ function App() {
         duration: Math.max(0.12, Number(segment.duration_sec) || (Number(segment.end_sec) || 0) - (Number(segment.start_sec) || 0)),
         color: "purple", aiGenerated: true, aiType: "silence", aiData: segment
       }));
-      setClips((items) => [...items.filter((clip) => !(clip.aiGenerated && ["transcript", "beat", "silence"].includes(clip.aiType))), ...transcriptClips, ...beatClips, ...silenceClips]);
+      const soundEventClips = (analysis.sound_events || []).slice(0, 180).map((event, index) => ({
+        id: nextClipIdRef.current++, name: "Sound: " + String(event.label || "Event").slice(0, 28),
+        track: "A1", start: startOffset + Math.max(0, Number(event.start_sec) || 0),
+        duration: Math.max(0.12, (Number(event.end_sec) || 0) - (Number(event.start_sec) || 0)),
+        color: "purple", aiGenerated: true, aiType: "sound-event", aiData: event
+      }));
+      const stemClips = await Promise.all((analysis.separation?.stems || []).map(async (stem) => ({
+        id: nextClipIdRef.current++, name: stem.name || (stem.type || "Audio") + " stem",
+        fileName: stem.name || stem.type || "Audio stem", mediaPath: stem.path,
+        mediaUrl: await window.vidclips.mediaUrlFromPath(stem.path),
+        track: "A1", start: startOffset, duration: Math.max(0.12, Number(analysis.duration_sec) || selectedClip.duration),
+        sourceIn: 0, sourceOut: Number(analysis.duration_sec) || selectedClip.duration,
+        color: "green", audioOnly: true, waveform: null, aiGenerated: true, aiType: "audio-stem", aiData: stem
+      })));
+      const replaceTypes = ["transcript", "transcript-word", "beat", "silence", "sound-event", "audio-stem"];
+      setClips((items) => [...items.filter((clip) => !(clip.aiGenerated && replaceTypes.includes(clip.aiType))), ...transcriptClips, ...wordClips, ...beatClips, ...silenceClips, ...soundEventClips, ...stemClips]);
       setAudioAnalysisResults(analysis);
       setAudioProgress("Audio analysis complete · " + Number(analysis.duration_sec || 0).toFixed(1) + " s");
       setNotice("Audio analysis complete: " + transcriptClips.length + " speech segments, " + beatClips.length + " beats, " + silenceClips.length + " silence regions.");
