@@ -379,7 +379,7 @@ function App() {
         color: "green", audioOnly: true, waveform: null, aiGenerated: true, aiType: "audio-stem", aiData: stem
       })));
       const replaceTypes = ["transcript", "transcript-word", "beat", "silence", "sound-event", "audio-stem"];
-      setClips((items) => [...items.filter((clip) => !(clip.aiGenerated && replaceTypes.includes(clip.aiType))), ...transcriptClips, ...wordClips, ...beatClips, ...silenceClips, ...soundEventClips, ...stemClips]);
+      setClips((items) => [...items.filter((clip) => !(clip.aiGenerated && replaceTypes.includes(clip.aiType))).map((clip) => stemClips.length && clip.track === "A1" && clip.mediaPath && !clip.aiGenerated ? { ...clip, muted: true } : clip), ...transcriptClips, ...wordClips, ...beatClips, ...silenceClips, ...soundEventClips, ...stemClips]);
       setAudioAnalysisResults(analysis);
       setAudioProgress("Audio analysis complete · " + Number(analysis.duration_sec || 0).toFixed(1) + " s");
       setNotice("Audio analysis complete: " + transcriptClips.length + " speech segments, " + beatClips.length + " beats, " + silenceClips.length + " silence regions.");
