@@ -31,6 +31,7 @@ function App() {
   const fileInputRef = useRef(null);
   const videoRef = useRef(null);
   const audioRef = useRef(null);
+  const audioElementsRef = useRef(new Map());
   const nextClipIdRef = useRef(1);
 
   useEffect(() => {
@@ -57,6 +58,23 @@ function App() {
   }, []);
 
   const selectedClip = clips.find((clip) => clip.id === selected);
+
+  useEffect(() => {
+    for (const clip of clips) {
+      if (clip.track !== "A1" || !clip.audioOnly || !clip.mediaUrl) continue;
+      const audio = clip.id === selected ? audioRef.current : audioElementsRef.current.get(clip.id);
+      if (!audio) continue;
+      const active = playhead >= clip.start && playhead < clip.start + clip.duration;
+      if (!playing || !active) {
+        if (!audio.paused) audio.pause();
+        continue;
+      }
+      const localTime = Math.max(0, (Number(clip.sourceIn) || 0) + playhead - clip.start);
+      if (Number.isFinite(localTime) && Math.abs(audio.currentTime - localTime) > 0.35) audio.currentTime = localTime;
+      audio.volume = Math.max(0, Math.min(1, Number(clip.volume ?? 1)));
+      if (audio.paused) audio.play().catch(() => setNotice("An audio timeline clip could not start. Check the source file and audio format."));
+    }
+  }, [clips, playhead, playing, selected]);
   const totalDuration = Math.max(20, ...clips.map((clip) => clip.start + clip.duration));
   const pixelsPerSecond = 52 * zoom;
   const ticks = useMemo(() => Array.from({ length: Math.ceil(totalDuration / 2) + 1 }, (_, i) => i * 2), [totalDuration]);
@@ -426,8 +444,9 @@ function App() {
             <section className="preview-panel">
               <div className="panel-heading"><span>PREVIEW</span><span className="muted">Program monitor</span></div>
               <div className="preview-screen">
+                {clips.filter((clip) => clip.track === "A1" && clip.audioOnly && clip.mediaUrl && clip.id !== selected).map((clip) => <audio key={"timeline-audio-" + clip.id} ref={(node) => { if (node) audioElementsRef.current.set(clip.id, node); else audioElementsRef.current.delete(clip.id); }} src={clip.mediaUrl} preload="auto" />)}
                 {selectedClip?.mediaUrl && selectedClip.audioOnly ? (
-                  <div className="audio-preview"><AudioLines size={44} /><strong>{selectedClip.name}</strong><span>Audio source preview</span><audio key={selectedClip.id} ref={audioRef} src={selectedClip.mediaUrl} controls preload="metadata" onLoadedMetadata={(e) => { const localTime = Math.max(0, Math.min(selectedClip.duration, (selectedClip.sourceIn || 0) + playhead - selectedClip.start)); if (Number.isFinite(localTime)) e.currentTarget.currentTime = localTime; }} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} onTimeUpdate={(e) => setPlayhead(Math.min(selectedClip.start + selectedClip.duration, selectedClip.start + e.currentTarget.currentTime - (selectedClip.sourceIn || 0)))} onError={() => setNotice("This audio format could not be played by the current media engine.")} /></div>
+                  <div className="audio-preview"><AudioLines size={44} /><strong>{selectedClip.name}</strong><span>Audio source preview</span><audio key={selectedClip.id} ref={audioRef} src={selectedClip.mediaUrl} controls preload="metadata" onLoadedMetadata={(e) => { const localTime = Math.max(0, Math.min(selectedClip.duration, (selectedClip.sourceIn || 0) + playhead - selectedClip.start)); if (Number.isFinite(localTime)) e.currentTarget.currentTime = localTime; }} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onTimeUpdate={(e) => setPlayhead(Math.min(selectedClip.start + selectedClip.duration, selectedClip.start + e.currentTarget.currentTime - (selectedClip.sourceIn || 0))) onError={() => setNotice("This audio format could not be played by the current media engine.")} /></div>
                 ) : selectedClip?.mediaUrl ? (
                   <video
                     key={selectedClip.id}
@@ -436,6 +455,7 @@ function App() {
                     style={{ filter: "brightness(" + (selectedClip.brightness ?? 1) + ") contrast(" + (selectedClip.contrast ?? 1) + ") saturate(" + (selectedClip.saturation ?? 1) + ")" }}
                     src={selectedClip.mediaUrl}
                     controls
+                    muted
                     preload="metadata"
                     onLoadedMetadata={(e) => {
                       const localTime = Math.max(0, Math.min(selectedClip.duration, (selectedClip.sourceIn || 0) + playhead - selectedClip.start));
