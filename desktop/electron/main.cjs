@@ -71,8 +71,12 @@ ipcMain.handle("vidclips:audio-waveform", async (_event, filePath) => {
 });
 
 ipcMain.handle("vidclips:export-mp4", async (_event, project) => {
-  const clips = (Array.isArray(project?.clips) ? project.clips : [])
+  const allClips = Array.isArray(project?.clips) ? project.clips : [];
+  const clips = allClips
     .filter((clip) => clip.track === "V1" && clip.mediaPath && Number(clip.duration) > 0)
+    .sort((a, b) => Number(a.start) - Number(b.start));
+  const audioClips = allClips
+    .filter((clip) => clip.track === "A1" && clip.mediaPath && Number(clip.duration) > 0)
     .sort((a, b) => Number(a.start) - Number(b.start));
   if (!clips.length) throw new Error("Add at least one imported video clip to track V1 before exporting.");
   const save = await dialog.showSaveDialog({ defaultPath: (project.projectName || "VidClips export").replace(/[<>:"/\\|?*]/g, "-") + ".mp4", filters: [{ name: "MP4 video", extensions: ["mp4"] }] });
@@ -82,6 +86,10 @@ ipcMain.handle("vidclips:export-mp4", async (_event, project) => {
   const args = ["-y"];
   for (const clip of clips) {
     if (!await fs.stat(clip.mediaPath).then(() => true).catch(() => false)) throw new Error("Source file not found: " + clip.mediaPath);
+    args.push("-i", clip.mediaPath);
+  }
+  for (const clip of audioClips) {
+    if (!await fs.stat(clip.mediaPath).then(() => true).catch(() => false)) throw new Error("Audio source file not found: " + clip.mediaPath);
     args.push("-i", clip.mediaPath);
   }
   const filters = [];
@@ -95,19 +103,38 @@ ipcMain.handle("vidclips:export-mp4", async (_event, project) => {
     const saturation = Math.max(0, Math.min(2, Number(clip.saturation ?? 1)));
     filters.push("[" + i + ":v:0]trim=start=" + sourceIn + ":duration=" + duration + ",setpts=PTS-STARTPTS,eq=brightness=" + (brightness - 1) + ":contrast=" + contrast + ":saturation=" + saturation + ",scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30[v" + i + "]");
     let hasAudio = false;
-    try {
-      const probeArgs = ["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=index", "-of", "csv=p=0", clip.mediaPath];
-      const probe = await runBinaryOutput(ffprobe, probeArgs);
-      hasAudio = Boolean(probe.stdout.trim());
-    } catch {}
+    if (!audioClips.length) {
+      try {
+        const probeArgs = ["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=index", "-of", "csv=p=0", clip.mediaPath];
+        const probe = await runBinaryOutput(ffprobe, probeArgs);
+        hasAudio = Boolean(probe.stdout.trim());
+      } catch {}
+    }
     if (hasAudio) filters.push("[" + i + ":a:0]atrim=start=" + sourceIn + ":duration=" + duration + ",asetpts=PTS-STARTPTS,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[a" + i + "]");
     else filters.push("anullsrc=r=48000:cl=stereo,atrim=duration=" + duration + "[a" + i + "]");
     concatInputs.push("[v" + i + "][a" + i + "]");
   }
   filters.push(concatInputs.join("") + "concat=n=" + clips.length + ":v=1:a=1[outv][outa]");
-  args.push("-filter_complex", filters.join(";"), "-map", "[outv]", "-map", "[outa]", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", save.filePath);
+  let outputAudio = "[outa]";
+  if (audioClips.length) {
+    const mixInputs = ["[outa]"];
+    for (let i = 0; i < audioClips.length; i++) {
+      const clip = audioClips[i];
+      const inputIndex = clips.length + i;
+      const sourceIn = Math.max(0, Number(clip.sourceIn) || 0);
+      const duration = Math.max(0.05, Number(clip.duration));
+      const startMs = Math.round(Math.max(0, Number(clip.start) || 0) * 1000);
+      const volume = Math.max(0, Math.min(2, Number(clip.volume ?? 1)));
+      const label = "timelineAudio" + i;
+      filters.push("[" + inputIndex + ":a:0]atrim=start=" + sourceIn + ":duration=" + duration + ",asetpts=PTS-STARTPTS,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,volume=" + volume + ",adelay=" + startMs + "|" + startMs + "[" + label + "]");
+      mixInputs.push("[" + label + "]");
+    }
+    filters.push(mixInputs.join("") + "amix=inputs=" + mixInputs.length + ":duration=first:normalize=0[mixedAudio]");
+    outputAudio = "[mixedAudio]";
+  }
+  args.push("-filter_complex", filters.join(";"), "-map", "[outv]", "-map", outputAudio, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", save.filePath);
   await runBinary(ffmpeg, args);
-  return { canceled: false, filePath: save.filePath, clips: clips.length };
+  return { canceled: false, filePath: save.filePath, clips: clips.length, audioClips: audioClips.length };
 });
 
 ipcMain.handle("vidclips:analyze-video", async (event, filePath, options = {}) => {
