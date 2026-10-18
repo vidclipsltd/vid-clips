@@ -370,7 +370,8 @@ function App() {
   }
 
   return (
-    <div className="app-shell">\n      {showWelcome && <div className="welcome-backdrop"><section className="welcome-card"><div className="brand-mark"><Film size={22} /></div><h1>Welcome to VidClips</h1><p>Your local video editing workspace. Add a profile name if you like; this is a first-run welcome screen, not an online account.</p><label>Profile name <input autoFocus value={profileName} onChange={(event) => setProfileName(event.target.value)} placeholder="Your name (optional)" onKeyDown={(event) => { if (event.key === "Enter") completeWelcome(); }} /></label><button className="button primary" onClick={completeWelcome}>Open editor</button></section></div>}
+    <div className="app-shell">
+      {showWelcome && <div className="welcome-backdrop"><section className="welcome-card"><div className="brand-mark"><Film size={22} /></div><h1>Welcome to VidClips</h1><p>Your local video editing workspace. Add a profile name if you like; this is a first-run welcome screen, not an online account.</p><label>Profile name <input autoFocus value={profileName} onChange={(event) => setProfileName(event.target.value)} placeholder="Your name (optional)" onKeyDown={(event) => { if (event.key === "Enter") completeWelcome(); }} /></label><button className="button primary" onClick={completeWelcome}>Open editor</button></section></div>}
       <header className="topbar">
         <div className="brand"><div className="brand-mark"><Film size={19} /></div><span>VidClips</span></div>
         <div className="project-title"><input aria-label="Project name" value={projectName} onChange={(e) => setProjectName(e.target.value)} /><span>Saved locally when exported</span></div>
