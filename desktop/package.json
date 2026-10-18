@@ -9,7 +9,6 @@
     "build": "vite build",
     "start": "electron .",
     "dist:win": "npm run build && electron-builder --win nsis",
-    "predev": "node scripts/generate-icon.cjs",
     "prebuild": "node scripts/generate-icon.cjs"
   },
   "dependencies": {
@@ -75,6 +74,10 @@
       {
         "from": "../docs/LIMITATIONS.md",
         "to": "vidclips-ai/docs/LIMITATIONS.md"
+      },
+      {
+        "from": "../scripts/desktop_analyze_audio.py",
+        "to": "vidclips-ai/scripts/desktop_analyze_audio.py"
       }
     ],
     "executableName": "VidClips"
